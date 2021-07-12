@@ -33,7 +33,7 @@ import logging
 import threading
 import traceback
 
-from . import rtp
+from .common import rtp
 from .common.utils import Defaultdict
 from .common.rtp import SilencePacket
 from .common.opus import Decoder, BufferedDecoder

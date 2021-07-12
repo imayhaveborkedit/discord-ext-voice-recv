@@ -2,9 +2,9 @@
 
 
 
-from .common import *
 # from .gateway_monkeypatch import patch as _patch_gw
 from .voice_client import VoiceRecvClient
+from .common import *
 
 # def patch():
 #     """Call this function after you import discord."""
