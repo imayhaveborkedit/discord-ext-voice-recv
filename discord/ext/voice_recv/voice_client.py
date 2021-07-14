@@ -15,7 +15,7 @@ class VoiceRecvClient(discord.VoiceClient):
         self._ssrcs = {} # TODO: switch to bidict(?)
 
     async def connect_websocket(self):
-        ws = await DiscordVoiceWebSocket.from_client(self, hook=hook)
+        ws = await discord.gateway.DiscordVoiceWebSocket.from_client(self, hook=hook)
         self._connected.clear()
         while ws.secret_key is None:
             await ws.poll_event()
