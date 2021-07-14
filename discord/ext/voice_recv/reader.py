@@ -195,13 +195,14 @@ class VoiceData:
         self.packet = packet
 
 class _ReaderBase(threading.Thread):
-    def __init__(self, **kwargs):
+    def __init__(self, client, **kwargs):
         daemon = kwargs.pop('daemon', True)
         super().__init__(daemon=daemon, **kwargs)
 
+        self.client = client
         self.box = nacl.secret.SecretBox(bytes(client.secret_key))
-        self.decrypt_rtp = getattr(self, '_decrypt_rtp_' + client._mode)
-        self.decrypt_rtcp = getattr(self, '_decrypt_rtcp_' + client._mode)
+        self.decrypt_rtp = getattr(self, '_decrypt_rtp_' + client.mode)
+        self.decrypt_rtcp = getattr(self, '_decrypt_rtcp_' + client.mode)
 
     def _decrypt_rtp_xsalsa20_poly1305(self, packet):
         nonce = bytearray(24)
@@ -268,7 +269,7 @@ class PCMEventAudioReader(_ReaderBase):
         if after is not None and not callable(after):
             raise TypeError('Expected a callable for the "after" parameter.')
 
-        super().__init__()
+        super().__init__(client)
 
         self.sink = sink
         self.client = client
@@ -352,7 +353,7 @@ class PCMEventAudioReader(_ReaderBase):
                 traceback.print_exc()
 
             else:
-                if packet.ssrc not in self.client._ssrcs:
+                if packet.ssrc not in self.client._ssrc_to_id:
                     log.debug("Received packet for unknown ssrc %s", packet.ssrc)
 
                 self.dispatch('voice_packet', self._get_user(packet), packet)

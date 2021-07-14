@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import discord
+import asyncio
 
 
 async def hook(self: discord.gateway.DiscordVoiceWebSocket, msg: dict):
@@ -20,7 +21,7 @@ async def hook(self: discord.gateway.DiscordVoiceWebSocket, msg: dict):
         else:
             user = vc._state.get_user(user_id)
 
-        vc._state.dispatch('speaking_update', user, SpeakingState(data['speaking']))
+        vc._state.dispatch('speaking_update', user, data['speaking'])
 
     elif op == self.CLIENT_CONNECT:
         self._connection._add_ssrc(int(data['user_id']), data['audio_ssrc'])

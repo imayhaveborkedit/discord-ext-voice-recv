@@ -4,7 +4,7 @@ import discord
 import threading
 
 from .gateway import hook
-from .reader import AudioReader
+from .reader import AudioReader, AudioSink
 
 class VoiceRecvClient(discord.VoiceClient):
     def __init__(self, client, channel):
@@ -12,7 +12,8 @@ class VoiceRecvClient(discord.VoiceClient):
 
         self._connecting = threading.Condition()
         self._reader = None
-        self._ssrcs = {} # TODO: switch to bidict(?)
+        self._ssrc_to_id = {}
+        self._id_to_ssrc = {}
 
     async def connect_websocket(self):
         ws = await discord.gateway.DiscordVoiceWebSocket.from_client(self, hook=hook)
@@ -58,6 +59,18 @@ class VoiceRecvClient(discord.VoiceClient):
     # TODO: copy over new functions
     # add/remove/get ssrc
 
+    def _add_ssrc(self, user_id, ssrc):
+        self._ssrc_to_id[ssrc] = user_id
+        self._id_to_ssrc[user_id] = ssrc
+
+    def _remove_ssrc(self, *, user_id):
+        ssrc = self._id_to_ssrc.pop(user_id, None)
+        if ssrc:
+            self._ssrc_to_id.pop(ssrc, None)
+
+    def _get_ssrc_mapping(self, *, ssrc):
+        uid = self._ssrc_to_id.get(ssrc)
+        return ssrc, uid
 
     def listen(self, sink):
         """Receives audio into a :class:`AudioSink`. TODO: wording"""
