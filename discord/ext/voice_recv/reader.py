@@ -264,7 +264,7 @@ class _ReaderBase(threading.Thread):
         raise NotImplementedError
 
 
-class PCMEventAudioReader(_ReaderBase):
+class OpusEventAudioReader(_ReaderBase):
     def __init__(self, sink, client, *, after=None):
         if after is not None and not callable(after):
             raise TypeError('Expected a callable for the "after" parameter.')
@@ -546,4 +546,4 @@ class PCMEventAudioReader(_ReaderBase):
 #                log.exception('Calling the after function failed.')
 
 
-AudioReader = PCMEventAudioReader
+AudioReader = OpusEventAudioReader
