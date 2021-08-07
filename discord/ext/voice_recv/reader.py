@@ -335,9 +335,9 @@ class OpusEventAudioReader(_ReaderBase):
                     packet = rtp.decode(self.decrypt_rtcp(raw_data))
                     if not isinstance(packet, rtp.ReceiverReportPacket):
                         print('Received unusual rtcp packet')
-                        print('*'*64)
+                        print('*'*78)
                         print(packet)
-                        print('*'*64)
+                        print('*'*78)
 
                         # TODO: Fabricate and send SenderReports and see what happens
 
