@@ -32,7 +32,12 @@ from collections import namedtuple
 
 log = logging.getLogger(__name__)
 
-__all__ = ['RTPPacket', 'RTCPPacket', 'SilencePacket']
+__all__ = ['RTPPacket', 'RTCPPacket', 'SilencePacket', 'ExtensionID']
+
+
+class ExtensionID:
+    voice_power = 1
+    speaking_state = 9
 
 
 def decode(data):
@@ -97,9 +102,9 @@ class FECPacket(_PacketCmpMixin):
 # Consider adding silence attribute to differentiate (to skip isinstance)
 
 class RTPPacket(_PacketCmpMixin):
-    __slots__ = ('version', 'padding', 'extended', 'cc', 'marker',
-                 'payload', 'sequence', 'timestamp', 'ssrc', 'csrcs',
-                 'header', 'data', 'decrypted_data', 'extension')
+    __slots__ = ('version', 'padding', 'extended', 'cc', 'marker', 'payload',
+                 'sequence', 'timestamp', 'ssrc', 'csrcs', 'header', 'data',
+                 'decrypted_data', 'extension', 'extension_data')
 
     _hstruct = struct.Struct('>xxHII')
     _ext_header = namedtuple("Extension", 'profile length values')
@@ -119,6 +124,7 @@ class RTPPacket(_PacketCmpMixin):
 
         self.csrcs = ()
         self.extension = None
+        self.extension_data = {}
 
         self.header = data[:12]
         self.data = data[12:]
@@ -135,14 +141,41 @@ class RTPPacket(_PacketCmpMixin):
     def update_ext_headers(self, data):
         """Adds extended header data to this packet, returns payload offset"""
 
-        profile, length = struct.unpack_from('>HH', data)
+        if not self.extended:
+            return
+
+        # data is the decrypted packet payload containing the extension header and opus data
+        profile, length = struct.unpack_from('>2sH', data)
+
+        if profile == b'\xBE\xDE':
+            self._parse_bede_header(data, length)
+
         values = struct.unpack('>%sI' % length, data[4:4+length*4])
         self.extension = self._ext_header(profile, length, values)
 
-        # TODO?: Update self.data with new data offset
-        # ... (do I need to do this? because it seems to work fine without it)
-
         return 4 + length * 4
+
+    # https://www.rfcreader.com/#rfc5285_line186
+    def _parse_bede_header(self, data, length):
+        offset = 4
+        n = 0
+
+        while n < length:
+            next_byte = data[offset:offset+1]
+
+            if next_byte == b'\x00':
+                offset += 1
+                continue
+
+            header = struct.unpack('>B', next_byte)[0]
+
+            element_id = header >> 4
+            element_len = 1 + (header & 0b0000_1111)
+
+            self.extension_data[element_id] = data[offset+1:offset+1+element_len]
+            offset += 1 + element_len
+            n += 1
+
 
     def _dump_info(self):
         attrs = {name: getattr(self, name) for name in self.__slots__}
@@ -154,7 +187,7 @@ class RTPPacket(_PacketCmpMixin):
     def __repr__(self):
         return '<RTPPacket ext={0.extended}, ' \
                'timestamp={0.timestamp}, sequence={0.sequence}, ' \
-               'ssrc={0.ssrc}, size={1}' \
+               'ssrc={0.ssrc}, size={1}, x={0.extended}' \
                '>'.format(self, len(self.data))
 
 # http://www.rfcreader.com/#rfc3550_line855
