@@ -36,7 +36,7 @@ __all__ = ['RTPPacket', 'RTCPPacket', 'SilencePacket', 'ExtensionID']
 
 
 class ExtensionID:
-    voice_power = 1
+    audio_power = 1
     speaking_state = 9
 
 
