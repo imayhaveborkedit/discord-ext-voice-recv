@@ -68,12 +68,18 @@ class _PacketCmpMixin:
     __slots__ = ()
 
     def __lt__(self, other):
+        if self.ssrc != other.ssrc:
+            raise TypeError("packet ssrc mismatch (%s, %s)" % (self.ssrc, other.ssrc))
         return self.timestamp < other.timestamp
 
     def __gt__(self, other):
+        if self.ssrc != other.ssrc:
+            raise TypeError("packet ssrc mismatch (%s, %s)" % (self.ssrc, other.ssrc))
         return self.timestamp > other.timestamp
 
     def __eq__(self, other):
+        if self.ssrc != other.ssrc:
+            raise TypeError("packet ssrc mismatch (%s, %s)" % (self.ssrc, other.ssrc))
         return self.timestamp == other.timestamp
 
 class SilencePacket(_PacketCmpMixin):
