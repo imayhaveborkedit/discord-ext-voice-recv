@@ -93,6 +93,49 @@ class AudioSink:
     # def pack_data(data, user=None, packet=None):
     #     return VoiceData(data, user, packet) # is this even necessary?
 
+
+
+class BasicSink(AudioSink):
+    def __init__(self, event, *, rtcp_event=lambda _: None):
+        self.on_voice_packet = event
+        self.on_voice_rtcp_packet = rtcp_event
+
+class JitterBufferSink(AudioSink):
+    def __init__(self, dest, **kwargs):
+        self.destination = dest
+        self._buffer = SimpleJitterBuffer(**kwargs)
+
+    def wants_opus(self):
+        return True
+
+    def write(self, packet):
+        items = self._buffer.push(packet)
+
+        for item in items:
+            self.description.write(item)
+
+class OpusDecoderSink(AudioSink):
+    def __init__(self, dest):
+        self.destination = dest
+        self._decoder = Decoder()
+
+    def wants_opus(self):
+        return True
+
+    def write(self, packet):
+        self.destination.write(self._decoder.decode(packet.decrypted_data))
+
+class BundledOpusSink(AudioSink):
+    def __init__(self, dest, **kwargs):
+        self.destination = JitterBufferSink(OpusDecoderSink(dest), **kwargs)
+
+    def on_voice_packet(self, packet):
+        self.destination.write(packet)
+
+
+###############################################################################
+
+
 class WaveSink(AudioSink):
     def __init__(self, destination):
         self._file = wave.open(destination, 'wb')
@@ -108,15 +151,6 @@ class WaveSink(AudioSink):
             self._file.close()
         except:
             pass
-
-
-
-class BasicSink(AudioSink):
-    def __init__(self, event, *, rtcp_event=lambda _: None):
-        self.on_voice_packet = event
-        self.on_voice_rtcp_packet = rtcp_event
-
-
 
 class PCMVolumeTransformerFilter(AudioSink):
     def __init__(self, destination, volume=1.0):
@@ -553,7 +587,7 @@ AudioReader = OpusEventAudioReader
 class SimpleJitterBuffer:
     """Push item in, returns as many contiguous items as possible"""
 
-    def __init__(self, maxsize=10, *, prefill=0):
+    def __init__(self, maxsize=10, *, prefill=3):
         if maxsize < 1:
             raise ValueError('maxsize must be greater than 0')
 
@@ -607,3 +641,14 @@ class SimpleJitterBuffer:
             return buf
 
         return []
+
+    # TODO: add flush function
+
+class DecoderWrapper:
+    def __init__(self, decoder=None):
+        self.decoder = decoder or Decoder()
+        self._last_ok = True
+
+    def push(self, item):
+        res = self.decoder.decode(item)
+        # TODO: fec needs a 1 packet buffer for lookahead
