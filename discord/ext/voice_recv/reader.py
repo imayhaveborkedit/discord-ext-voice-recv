@@ -347,6 +347,10 @@ class OpusEventAudioReader(_ReaderBase):
                 if e.errno == 10038: # ENOTSOCK
                     continue
 
+                if e.errno == 9: # Bad file descriptor
+                    self.stop()
+                    return
+
                 log.exception("Socket error in reader thread ")
                 print(f"Socket error in reader thread: {e} {t0}")
 
