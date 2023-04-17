@@ -47,38 +47,3 @@ async def _do_hacks(self):
 
     # just so we don't have the speaking circle when we're not actually speaking
     await self.speak(False)
-
-
-# async def patched_received_message(self, msg):
-#     await self._orig_received_message(self, msg)
-
-#     op = msg['op']
-#     data = msg.get('d')
-
-#     if op == self.SESSION_DESCRIPTION:
-#         await self._do_hacks()
-
-#     elif op == self.SPEAKING:
-#         user_id = int(data['user_id'])
-#         vc = self._connection
-#         vc._add_ssrc(user_id, data['ssrc'])
-
-#         if vc.guild:
-#             user = vc.guild.get_member(user_id)
-#         else:
-#             user = vc._state.get_user(user_id)
-
-#         vc._state.dispatch('speaking_update', user, SpeakingState(data['speaking']))
-
-#     elif op == self.CLIENT_CONNECT:
-#         self._connection._add_ssrc(int(data['user_id']), data['audio_ssrc'])
-
-#     elif op == self.CLIENT_DISCONNECT:
-#         self._connection._remove_ssrc(user_id=int(data['user_id']))
-
-
-# def patch():
-#     VoiceWebSocket = discord.gateway.DiscordVoiceWebSocket
-#     VoiceWebSocket._orig_received_message = VoiceWebSocket.received_message
-#     VoiceWebSocket.received_message = patched_received_message
-#     VoiceWebSocket._do_hacks = _do_hacks
