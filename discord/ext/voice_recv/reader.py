@@ -239,6 +239,11 @@ class _ReaderBase(threading.Thread):
         self.decrypt_rtp = getattr(self, '_decrypt_rtp_' + client.mode)
         self.decrypt_rtcp = getattr(self, '_decrypt_rtcp_' + client.mode)
 
+    def update_secret_box(self):
+        # Sure hope this isn't hilariously threadunsafe
+        # if so this might not be the way i need to do this
+        self.box = nacl.secret.SecretBox(bytes(client.secret_key))
+
     def _decrypt_rtp_xsalsa20_poly1305(self, packet):
         nonce = bytearray(24)
         nonce[:12] = packet.header
@@ -384,7 +389,8 @@ class OpusEventAudioReader(_ReaderBase):
                     continue
 
             except CryptoError:
-                log.exception("CryptoError decoding packet %s", packet)
+                msg = "CryptoError decoding data:\n  packet=%s\n  raw_data=%s"
+                log.exception(msg, packet, raw_data)
                 continue
 
             except:

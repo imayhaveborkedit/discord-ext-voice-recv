@@ -1,15 +1,23 @@
 # -*- coding: utf-8 -*-
 
+import logging
+
 import discord
 import asyncio
 
+log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 async def hook(self: discord.gateway.DiscordVoiceWebSocket, msg: dict):
     op = msg['op']
     data = msg.get('d')
 
     if op == self.SESSION_DESCRIPTION:
-        await _do_hacks(self)
+        # log.info("Doing voice hacks")
+        # await _do_hacks(self)
+
+        if self._connection._reader:
+            self._connection._reader.update_secret_box()
 
     elif op == self.SPEAKING:
         user_id = int(data['user_id'])
