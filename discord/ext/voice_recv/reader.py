@@ -341,7 +341,7 @@ class OpusEventAudioReader(_ReaderBase):
                                           [self.client.socket], 0.01)
             if not ready:
                 if err:
-                    print("Socket error")
+                    log.warning("Socket error")
                 continue
 
             try:
@@ -356,8 +356,7 @@ class OpusEventAudioReader(_ReaderBase):
                     self.stop()
                     return
 
-                log.exception("Socket error in reader thread ")
-                print(f"Socket error in reader thread: {e} {t0}")
+                log.exception("Socket error in reader thread %s", self)
 
                 with self.client._connecting:
                     timed_out = self.client._connecting.wait(20)
@@ -365,7 +364,7 @@ class OpusEventAudioReader(_ReaderBase):
                 if not timed_out:
                     raise
                 elif self.client.is_connected():
-                    print(f"Reconnected in {time.time()-t0:.4f}s")
+                    log.info("Reconnected in %ss", time.time()-t0:.4f)
                     continue
                 else:
                     raise
@@ -378,11 +377,10 @@ class OpusEventAudioReader(_ReaderBase):
                 else:
                     packet = rtp.decode(self.decrypt_rtcp(raw_data))
                     if not isinstance(packet, rtp.ReceiverReportPacket):
-                        print('Received unusual rtcp packet')
-                        print('*'*78)
-                        print(packet)
-                        print('*'*78)
-
+                        log.warning(
+                            "Received unusual rtcp packet%s",
+                            f"\n{'*'*78}\n{packet}\n{'*'*78}"
+                        )
                         # TODO: Fabricate and send SenderReports and see what happens
 
                     self.dispatch('voice_rtcp_packet', packet)
