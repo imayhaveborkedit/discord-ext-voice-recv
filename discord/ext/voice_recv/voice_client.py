@@ -127,11 +127,11 @@ class VoiceRecvClient(discord.VoiceClient):
         return self._reader.sink if self._reader else None
 
     @sink.setter
-    def sink(self, sink):
+    def sink(self, sink: AudioSink):
         if not isinstance(sink, AudioSink):
             raise TypeError('expected AudioSink not {0.__class__.__name__}.'.format(sink))
 
         if self._reader is None:
             raise ValueError('Not receiving anything.')
 
-        self._reader._set_sink(sink)
+        self._reader.set_sink(sink)

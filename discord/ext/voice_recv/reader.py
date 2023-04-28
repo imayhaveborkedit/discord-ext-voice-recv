@@ -7,13 +7,19 @@ import logging
 import threading
 import traceback
 
+from typing import TYPE_CHECKING
+
 from . import rtp
+from .sinks import AudioSink
 
 try:
     import nacl.secret
     from nacl.exceptions import CryptoError
 except ImportError:
     pass
+
+if TYPE_CHECKING:
+    from .voice_client import VoiceRecvClient
 
 log = logging.getLogger(__name__)
 
@@ -31,14 +37,22 @@ class VoiceData:
         self.packet = packet
 
 class _ReaderBase(threading.Thread):
-    def __init__(self, client, **kwargs):
+    def __init__(self, sink, client, **kwargs):
         daemon = kwargs.pop('daemon', True)
         super().__init__(daemon=daemon, **kwargs)
 
-        self.client = client
+        self.sink: AudioSink = sink
+        self.client: VoiceRecvClient = client
+
         self.box = nacl.secret.SecretBox(bytes(client.secret_key))
         self.decrypt_rtp = getattr(self, '_decrypt_rtp_' + client.mode)
         self.decrypt_rtcp = getattr(self, '_decrypt_rtcp_' + client.mode)
+
+    def run(self):
+        raise NotImplementedError
+
+    def set_sink(self, sink: AudioSink):
+        raise NotImplementedError
 
     def update_secret_box(self):
         # Sure hope this isn't hilariously threadunsafe
@@ -101,19 +115,14 @@ class _ReaderBase(threading.Thread):
 
         return header + result
 
-    def run(self):
-        raise NotImplementedError
-
 
 class OpusEventAudioReader(_ReaderBase):
     def __init__(self, sink, client, *, after=None):
         if after is not None and not callable(after):
             raise TypeError('Expected a callable for the "after" parameter.')
 
-        super().__init__(client)
+        super().__init__(sink, client)
 
-        self.sink = sink
-        self.client = client
         self.after = after
 
         self._current_error = None

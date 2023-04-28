@@ -21,8 +21,12 @@
 import logging
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from discord.gateway import DiscordVoiceWebSocket
+
+if TYPE_CHECKING:
+    from .voice_client import VoiceRecvClient
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -30,13 +34,14 @@ log.setLevel(logging.DEBUG)
 async def hook(self: DiscordVoiceWebSocket, msg: dict):
     op: int = msg['op']
     data: dict = msg.get('d') # type: ignore
+    vc: VoiceRecvClient = self._connection # type: ignore
 
     if op == self.SESSION_DESCRIPTION:
         # log.info("Doing voice hacks")
         # await _do_hacks(self)
 
-        if self._connection._reader:
-            self._connection._reader.update_secret_box()
+        if vc._reader:
+            vc._reader.update_secret_box()
 
     elif op == self.SPEAKING:
         user_id = int(data['user_id'])
@@ -51,10 +56,11 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
         vc._state.dispatch('speaking_update', user, data['speaking'])
 
     elif op == self.CLIENT_CONNECT:
-        self._connection._add_ssrc(int(data['user_id']), data['audio_ssrc'])
+        # TODO: is SPEAKING[ssrc] the same as this ssrc
+        vc._add_ssrc(int(data['user_id']), data['audio_ssrc'])
 
     elif op == self.CLIENT_DISCONNECT:
-        self._connection._remove_ssrc(user_id=int(data['user_id']))
+        vc._remove_ssrc(user_id=int(data['user_id']))
 
 async def _do_hacks(self):
     # Everything below this is a hack because discord keeps breaking things

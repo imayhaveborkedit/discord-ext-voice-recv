@@ -37,7 +37,6 @@ class SinkExit(DiscordException):
     """
 
     def __init__(self, *, drain=True, flush=False):
-        # self.kwargs = kwargs
         self.drain = drain
         self.flush = flush
 
