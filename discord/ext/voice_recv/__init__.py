@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from .voice_client import VoiceRecvClient
+from .voice_client import *
 from .reader import *
-from .common import *
 
 __title__ = 'discord.ext.voice_recv'
 __author__ = 'Imayhaveborkedit'

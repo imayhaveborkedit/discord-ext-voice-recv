@@ -1,16 +1,35 @@
 # -*- coding: utf-8 -*-
 
+# https://cdn.discordapp.com/attachments/381887113391505410/1094473412623204533/image.png
+
+# IDENTIFY            = 0
+# SELECT_PROTOCOL     = 1
+# READY               = 2
+# HEARTBEAT           = 3
+# SESSION_DESCRIPTION = 4  or SELECT_PROTOCOL_ACK
+# SPEAKING            = 5
+# HEARTBEAT_ACK       = 6
+# RESUME              = 7
+# HELLO               = 8
+# RESUMED             = 9
+# CLIENT_CONNECT      = 12 or VIDEO
+# CLIENT_DISCONNECT   = 13
+
+# VOICE_BACKEND_VERSION = 16
+# CHANNEL_OPTIONS_UPDATE = 17
+
 import logging
 
-import discord
 import asyncio
+
+from discord.gateway import DiscordVoiceWebSocket
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
 
-async def hook(self: discord.gateway.DiscordVoiceWebSocket, msg: dict):
-    op = msg['op']
-    data = msg.get('d')
+async def hook(self: DiscordVoiceWebSocket, msg: dict):
+    op: int = msg['op']
+    data: dict = msg.get('d') # type: ignore
 
     if op == self.SESSION_DESCRIPTION:
         # log.info("Doing voice hacks")

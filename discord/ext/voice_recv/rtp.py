@@ -32,7 +32,13 @@ from collections import namedtuple
 
 log = logging.getLogger(__name__)
 
-__all__ = ['RTPPacket', 'RTCPPacket', 'SilencePacket', 'ExtensionID']
+__all__ = [
+    'RTPPacket',
+    'RTCPPacket',
+    'SilencePacket',
+    'ExtensionID',
+    'FECPacket'
+]
 
 
 class ExtensionID:
@@ -65,7 +71,7 @@ def _parse_low(x):
 
 
 class _PacketCmpMixin:
-    __slots__ = ()
+    __slots__ = ('ssrc', 'timestamp')
 
     def __lt__(self, other):
         if self.ssrc != other.ssrc:
@@ -300,7 +306,7 @@ class SDESPacket(RTCPPacket):
         _chunks = []
         self._pos = 4
 
-        for x in range(self.source_count):
+        for _ in range(self.source_count):
             _chunks.append(self._read_chunk(data))
 
         self.chunks = tuple(_chunks)

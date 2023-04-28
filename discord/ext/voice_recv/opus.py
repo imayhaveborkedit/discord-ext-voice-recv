@@ -1,10 +1,19 @@
 # -*- coding: utf-8 -*-
 
+import time
+import bisect
+import logging
 import threading
+import traceback
+
+from collections import deque
 
 from .rtp import *
 
+from discord.utils import get
 from discord.opus import Decoder
+
+log = logging.getLogger(__name__)
 
 class BufferedDecoder(threading.Thread):
     DELAY = Decoder.FRAME_LENGTH / 1000.0
@@ -110,7 +119,7 @@ class BufferedDecoder(threading.Thread):
         #     return
 
         with self._lock:
-            existing_packet = utils.get(self._buffer, timestamp=item.timestamp)
+            existing_packet = get(self._buffer, timestamp=item.timestamp)
             if isinstance(existing_packet, SilencePacket):
                 # Replace silence packets with rtp packets
                 self._buffer[self._buffer.index(existing_packet)] = item
@@ -207,7 +216,7 @@ class BufferedDecoder(threading.Thread):
             self._last_seq += 1 # self._last_seq = packet.sequence?
 
             if isinstance(packet, RTPPacket):
-                pcm = self._decoder.decode(packet.decrypted_data)
+                pcm = self._decoder.decode(packet.decrypted_data, fec=False)
 
             elif isinstance(nextpacket, RTPPacket):
                 pcm = self._decoder.decode(packet.decrypted_data, fec=True)
@@ -327,8 +336,9 @@ class BufferedPacketDecoder(BasePacketDecoder):
             self._last_seq = self._last_ts = 0
             self._buffer.clear()
             self._rtcp_buffer.clear()
-            self._gen.close()
-            self._gen = None
+            if self._gen:
+                self._gen.close()
+                self._gen = None
 
     def _push(self, item):
         if not isinstance(item, (RTPPacket, SilencePacket)):
@@ -340,7 +350,7 @@ class BufferedPacketDecoder(BasePacketDecoder):
         #     return
 
         with self._lock:
-            existing_packet = utils.get(self._buffer, timestamp=item.timestamp)
+            existing_packet = get(self._buffer, timestamp=item.timestamp)
             if isinstance(existing_packet, SilencePacket):
                 # Replace silence packets with rtp packets
                 self._buffer[self._buffer.index(existing_packet)] = item
@@ -412,7 +422,7 @@ class BufferedPacketDecoder(BasePacketDecoder):
             self._last_seq += 1 # self._last_seq = packet.sequence?
 
             if isinstance(packet, RTPPacket):
-                pcm = self._decoder.decode(packet.decrypted_data)
+                pcm = self._decoder.decode(packet.decrypted_data, fec=False)
 
             elif isinstance(nextpacket, RTPPacket):
                 pcm = self._decoder.decode(packet.decrypted_data, fec=True)
@@ -511,11 +521,12 @@ class BufferedDecoder2(threading.Thread):
 
     def _initial_fill(self):
         # Fill a single buffer first then dispense into the actual buffers
-        try:
-            normal_feed_rtp = self.feed_rtp
-            self.feed_rtp = self._feed_rtp_initial
 
-            buff = self.initial_buffer
+        normal_feed_rtp = self.feed_rtp
+        self.feed_rtp = self._feed_rtp_initial
+        buff = self.initial_buffer
+
+        try:
 
             # Very small sleep to check if there's buffered packets
             time.sleep(0.002)
@@ -586,7 +597,7 @@ class BufferedDecoder2(threading.Thread):
             remaining = next_time - time.perf_counter()
 
             if remaining >= 0:
-                insort(self.queue, (next_time, decoder))
+                bisect.insort(self.queue, (next_time, decoder))
                 time.sleep(max(0.002, remaining/2)) # sleep accuracy tm
                 continue
 

@@ -1,44 +1,13 @@
 # -*- coding: utf-8 -*-
 
-"""
-The MIT License (MIT)
-
-Copyright (c) 2015-present Rapptz
-
-Permission is hereby granted, free of charge, to any person obtaining a
-copy of this software and associated documentation files (the "Software"),
-to deal in the Software without restriction, including without limitation
-the rights to use, copy, modify, merge, publish, distribute, sublicense,
-and/or sell copies of the Software, and to permit persons to whom the
-Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-"""
-
 import time
-import wave
-import bisect
 import select
 import socket
-import audioop
 import logging
 import threading
 import traceback
 
-from .common import rtp
-from .common.utils import Defaultdict
-from .common.rtp import SilencePacket
-from .common.opus import Decoder, BufferedDecoder
-from discord.errors import DiscordException
+from . import rtp
 
 try:
     import nacl.secret
@@ -49,176 +18,8 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 __all__ = [
-    'AudioSink',
-    'BasicSink',
-    'AudioReader',
-    # 'WaveSink',
-    # 'PCMVolumeTransformerFilter',
-    # 'ConditionalFilter',
-    # 'TimedFilter',
-    # 'UserFilter',
-    # 'SinkExit',
+    'AudioReader'
 ]
-
-class SinkExit(DiscordException):
-    """A signal type exception (like ``GeneratorExit``) to raise in a Sink's write() method to stop it.
-
-    TODO: make better words
-
-    Parameters
-    -----------
-    drain: :class:`bool`
-        ...
-    flush: :class:`bool`
-        ...
-    """
-
-    def __init__(self, *, drain=True, flush=False):
-        self.kwargs = kwargs
-
-class AudioSink:
-    def __del__(self):
-        self.cleanup()
-
-    def write(self, data):
-        raise NotImplementedError
-
-    def wants_opus(self):
-        return False
-
-    def cleanup(self):
-        pass
-
-    # @staticmethod
-    # def pack_data(data, user=None, packet=None):
-    #     return VoiceData(data, user, packet) # is this even necessary?
-
-
-
-class BasicSink(AudioSink):
-    def __init__(self, event, *, rtcp_event=lambda _: None):
-        self.on_voice_packet = event
-        self.on_voice_rtcp_packet = rtcp_event
-
-class JitterBufferSink(AudioSink):
-    def __init__(self, dest, **kwargs):
-        self.destination = dest
-        self._buffer = SimpleJitterBuffer(**kwargs)
-
-    def wants_opus(self):
-        return True
-
-    def write(self, packet):
-        items = self._buffer.push(packet)
-
-        for item in items:
-            self.description.write(item)
-
-class OpusDecoderSink(AudioSink):
-    def __init__(self, dest):
-        self.destination = dest
-        self._decoder = Decoder()
-
-    def wants_opus(self):
-        return True
-
-    def write(self, packet):
-        self.destination.write(self._decoder.decode(packet.decrypted_data))
-
-class BundledOpusSink(AudioSink):
-    def __init__(self, dest, **kwargs):
-        self.destination = JitterBufferSink(OpusDecoderSink(dest), **kwargs)
-
-    def on_voice_packet(self, packet):
-        self.destination.write(packet)
-
-
-###############################################################################
-
-
-class WaveSink(AudioSink):
-    def __init__(self, destination):
-        self._file = wave.open(destination, 'wb')
-        self._file.setnchannels(Decoder.CHANNELS)
-        self._file.setsampwidth(Decoder.SAMPLE_SIZE//Decoder.CHANNELS)
-        self._file.setframerate(Decoder.SAMPLING_RATE)
-
-    def write(self, data):
-        self._file.writeframes(data.data)
-
-    def cleanup(self):
-        try:
-            self._file.close()
-        except:
-            pass
-
-class PCMVolumeTransformerFilter(AudioSink):
-    def __init__(self, destination, volume=1.0):
-        if not isinstance(destination, AudioSink):
-            raise TypeError('expected AudioSink not {0.__class__.__name__}.'.format(destination))
-
-        if destination.wants_opus():
-            raise ClientException('AudioSink must not request Opus encoding.')
-
-        self.destination = destination
-        self.volume = volume
-
-    @property
-    def volume(self):
-        """Retrieves or sets the volume as a floating point percentage (e.g. 1.0 for 100%)."""
-        return self._volume
-
-    @volume.setter
-    def volume(self, value):
-        self._volume = max(value, 0.0)
-
-    def write(self, data):
-        data = audioop.mul(data.data, 2, min(self._volume, 2.0))
-        self.destination.write(data)
-
-# I need some sort of filter sink with a predicate or something
-# Which means I need to sort out the write() signature issue
-# Also need something to indicate a sink is "done", probably
-# something like raising an exception and handling that in the write loop
-# Maybe should rename some of these to Filter instead of Sink
-
-class ConditionalFilter(AudioSink):
-    def __init__(self, destination, predicate):
-        self.destination = destination
-        self.predicate = predicate
-
-    def write(self, data):
-        if self.predicate(data):
-            self.destination.write(data)
-
-class TimedFilter(ConditionalFilter):
-    def __init__(self, destination, duration, *, start_on_init=False):
-        super().__init__(destination, self._predicate)
-        self.duration = duration
-        if start_on_init:
-            self.start_time = self.get_time()
-        else:
-            self.start_time = None
-            self.write = self._write_once
-
-    def _write_once(self, data):
-        self.start_time = self.get_time()
-        super().write(data)
-        self.write = super().write
-
-    def _predicate(self, data):
-        return self.start_time and self.get_time() - self.start_time < self.duration
-
-    def get_time(self):
-        return time.time()
-
-class UserFilter(ConditionalFilter):
-    def __init__(self, destination, user):
-        super().__init__(destination, self._predicate)
-        self.user = user
-
-    def _predicate(self, data):
-        return data.user == self.user
 
 # rename 'data' to 'payload'? or 'opus'? something else?
 class VoiceData:
@@ -242,7 +43,7 @@ class _ReaderBase(threading.Thread):
     def update_secret_box(self):
         # Sure hope this isn't hilariously threadunsafe
         # if so this might not be the way i need to do this
-        self.box = nacl.secret.SecretBox(bytes(client.secret_key))
+        self.box = nacl.secret.SecretBox(bytes(self.client.secret_key))
 
     def _decrypt_rtp_xsalsa20_poly1305(self, packet):
         nonce = bytearray(24)
@@ -364,13 +165,13 @@ class OpusEventAudioReader(_ReaderBase):
                 if not timed_out:
                     raise
                 elif self.client.is_connected():
-                    log.info("Reconnected in %ss", time.time()-t0:.4f)
+                    log.info("Reconnected in %.4fs", time.time()-t0)
                     continue
                 else:
                     raise
 
+            packet = None
             try:
-                packet = None
                 if not rtp.is_rtcp(raw_data):
                     packet = rtp.decode(raw_data)
                     packet.decrypted_data = self.decrypt_rtp(packet)
@@ -590,73 +391,3 @@ class OpusEventAudioReader(_ReaderBase):
 
 
 AudioReader = OpusEventAudioReader
-
-
-class SimpleJitterBuffer:
-    """Push item in, returns as many contiguous items as possible"""
-
-    def __init__(self, maxsize=10, *, prefill=3):
-        if maxsize < 1:
-            raise ValueError('maxsize must be greater than 0')
-
-        self.maxsize = maxsize
-        self.prefill = prefill
-        self._last_seq = 0
-        self._buffer = []
-
-    def push(self, item):
-        if item.sequence <= self._last_seq and self._last_seq:
-            return []
-
-        bisect.insort(self._buffer, item)
-
-        if self.prefill > 0:
-            self.prefill -= 1
-            return []
-
-        return self._get_ready_batch()
-
-    def _get_ready_batch(self):
-        if not self._buffer or self.prefill > 0:
-            return []
-
-        if not self._last_seq:
-            self._last_seq = self._buffer[0].sequence - 1
-
-        # check to see if the next packet is the next one
-        if self._last_seq + 1 == self._buffer[0].sequence:
-
-            # Check for how many contiguous packets we have
-            n = ok = 0
-            for n in range(len(self._buffer)): # TODO: enumerate
-                if self._last_seq + n + 1 != self._buffer[n].sequence:
-                    break
-                ok = n + 1
-
-            # slice out the next section of the buffer
-            segment = self._buffer[:ok]
-            self._buffer = self._buffer[ok:]
-            if segment:
-                self._last_seq = segment[-1].sequence
-
-            return segment
-
-        # size check and add skips as None
-        if len(self._buffer) > self.maxsize:
-            buf = [None for _ in range(self._buffer[0].sequence-self._last_seq-1)]
-            self._last_seq = self._buffer[0].sequence - 1
-            buf.extend(self._get_ready_batch())
-            return buf
-
-        return []
-
-    # TODO: add flush function
-
-class DecoderWrapper:
-    def __init__(self, decoder=None):
-        self.decoder = decoder or Decoder()
-        self._last_ok = True
-
-    def push(self, item):
-        res = self.decoder.decode(item)
-        # TODO: fec needs a 1 packet buffer for lookahead
