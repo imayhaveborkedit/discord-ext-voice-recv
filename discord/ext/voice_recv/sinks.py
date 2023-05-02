@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import abc
 import time
 import wave
 import audioop
@@ -8,7 +9,7 @@ import logging
 from .opus import Decoder
 from .buffer import SimpleJitterBuffer
 
-from discord.errors import DiscordException, ClientException
+import discord
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ __all__ = [
     # 'SinkExit',
 ]
 
-class SinkExit(DiscordException):
+class SinkExit(discord.DiscordException):
     """A signal type exception (like ``GeneratorExit``) to raise in a Sink's write() method to stop it.
 
     TODO: make better words
@@ -40,26 +41,65 @@ class SinkExit(DiscordException):
         self.drain = drain
         self.flush = flush
 
-class AudioSink:
+class VoiceRecvException(discord.DiscordException):
+    """Generic exception for voice recv related errors"""
+
+    def __init__(self, message):
+        self.message = message
+
+class AudioSink(metaclass=abc.ABCMeta):
+    _voice_client: discord.VoiceClient | None = None
+
     def __del__(self):
         self.cleanup()
 
-    def write(self, data):
+    @property
+    def voice_client(self) -> discord.VoiceClient:
+        assert self._voice_client
+        return self._voice_client
+
+    @abc.abstractmethod
+    def write(self, user: discord.User | discord.Member | None, data):
+        """Callback for when the sink receives data"""
         raise NotImplementedError
 
-    def wants_opus(self):
-        return False
-
-    def cleanup(self):
+    def write_rtcp(self, data):
+        """Optional callback for when the sink receives an rtcp packet"""
         pass
+
+    # TODO: handling opus vs pcm is not strictly mutually exclusive
+    #       a sink could handle both but idk about that pattern
+    @property
+    @abc.abstractmethod
+    def wants_opus(self) -> bool:
+        """Whether or not this sink handles opus data"""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def cleanup(self):
+        raise NotImplementedError
 
 
 class BasicSink(AudioSink):
     """Simple callback based sink."""
 
-    def __init__(self, event, *, rtcp_event=lambda _: None):
-        self.on_voice_packet = event
-        self.on_voice_rtcp_packet = rtcp_event
+    def __init__(self, event, *, rtcp_event=None):
+        self.cb = event
+        self.cb_rtcp = rtcp_event
+
+    def write(self, user, data):
+        self.cb(user, data)
+
+    def write_rtcp(self, data):
+        self.cb_rtcp(data) if self.cb_rtcp else None
+
+    @property
+    def wants_opus(self):
+        return True
+
+    def cleanup(self):
+        pass
+
 
 class JitterBufferSink(AudioSink):
     def __init__(self, dest, **kwargs):
@@ -75,6 +115,9 @@ class JitterBufferSink(AudioSink):
         for item in items:
             self.destination.write(item)
 
+    def cleanup(self):
+        pass
+
 class OpusDecoderSink(AudioSink):
     def __init__(self, dest):
         self.destination = dest
@@ -85,6 +128,9 @@ class OpusDecoderSink(AudioSink):
 
     def write(self, packet):
         self.destination.write(self._decoder.decode(packet.decrypted_data, fec=False))
+
+    def cleanup(self):
+        pass
 
 class BundledOpusSink(AudioSink):
     def __init__(self, dest, **kwargs):
@@ -118,8 +164,8 @@ class PCMVolumeTransformerFilter(AudioSink):
         if not isinstance(destination, AudioSink):
             raise TypeError('expected AudioSink not {0.__class__.__name__}.'.format(destination))
 
-        if destination.wants_opus():
-            raise ClientException('AudioSink must not request Opus encoding.')
+        if destination.wants_opus:
+            raise VoiceRecvException('AudioSink must not request Opus encoding.')
 
         self.destination = destination
         self.volume = volume
@@ -135,7 +181,7 @@ class PCMVolumeTransformerFilter(AudioSink):
 
     def write(self, data):
         data = audioop.mul(data.data, 2, min(self._volume, 2.0))
-        self.destination.write(data)
+        self.destination.write(None, data) # TODO: unfuck
 
 # I need some sort of filter sink with a predicate or something
 # Which means I need to sort out the write() signature issue

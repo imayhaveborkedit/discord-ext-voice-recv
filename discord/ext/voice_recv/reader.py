@@ -51,8 +51,18 @@ class _ReaderBase(threading.Thread):
     def run(self):
         raise NotImplementedError
 
-    def set_sink(self, sink: AudioSink):
-        raise NotImplementedError
+    def set_sink(self, sink: AudioSink) -> AudioSink:
+        """Sets the new sink for the reader and returns the old one.
+        Does not call cleanup()
+        """
+
+        old_sink = self.sink
+        old_sink._voice_client = None
+
+        sink._voice_client = self.client
+        self.sink = sink
+
+        return old_sink
 
     def update_secret_box(self):
         # Sure hope this isn't hilariously threadunsafe
@@ -70,7 +80,7 @@ class _ReaderBase(threading.Thread):
 
         return result
 
-    def _decrypt_rtcp_xsalsa20_poly1305(self, data):
+    def _decrypt_rtcp_xsalsa20_poly1305(self, data: bytes):
         nonce = bytearray(24)
         nonce[:8] = data[:8]
         result = self.box.decrypt(data[8:], bytes(nonce))
@@ -88,7 +98,7 @@ class _ReaderBase(threading.Thread):
 
         return result
 
-    def _decrypt_rtcp_xsalsa20_poly1305_suffix(self, data):
+    def _decrypt_rtcp_xsalsa20_poly1305_suffix(self, data: bytes):
         nonce = data[-24:]
         header = data[:8]
         result = self.box.decrypt(data[8:-24], nonce)
@@ -107,7 +117,7 @@ class _ReaderBase(threading.Thread):
 
         return result
 
-    def _decrypt_rtcp_xsalsa20_poly1305_lite(self, data):
+    def _decrypt_rtcp_xsalsa20_poly1305_lite(self, data: bytes):
         nonce = bytearray(24)
         nonce[:4] = data[-4:]
         header = data[:8]
@@ -127,20 +137,19 @@ class OpusEventAudioReader(_ReaderBase):
 
         self._current_error = None
         self._end = threading.Event()
-        self._noop = lambda *_: None
 
     @property
     def connected(self):
         return self.client._connected
 
-    def dispatch(self, event, *args):
-        event = getattr(self.sink, 'on_'+event, self._noop)
-        event(*args)
+    def set_sink(self, sink: AudioSink) -> AudioSink:
+        # Definitely not threadsafe but idk if it matters yet
+        return super().set_sink(sink)
 
     def _get_user(self, packet):
         _, user_id = self.client._get_ssrc_mapping(ssrc=packet.ssrc)
         # may need to change this for calls or something
-        return self.client.guild.get_member(user_id)
+        return self.client.guild.get_member(user_id) if user_id else None
 
     def _do_run(self):
         while not self._end.is_set():
@@ -151,7 +160,7 @@ class OpusEventAudioReader(_ReaderBase):
                                           [self.client.socket], 0.01)
             if not ready:
                 if err:
-                    log.warning("Socket error")
+                    log.warning("Socket error in %s", self)
                 continue
 
             try:
@@ -169,6 +178,7 @@ class OpusEventAudioReader(_ReaderBase):
                 log.exception("Socket error in reader thread %s", self)
 
                 with self.client._connecting:
+                    log.info("Waiting for client connection")
                     timed_out = self.client._connecting.wait(20)
 
                 if not timed_out:
@@ -180,21 +190,21 @@ class OpusEventAudioReader(_ReaderBase):
                     raise
 
             packet = None
+            rtcp = False
             try:
                 if not rtp.is_rtcp(raw_data):
                     packet = rtp.decode(raw_data)
                     packet.decrypted_data = self.decrypt_rtp(packet)
                 else:
+                    rtcp = True
                     packet = rtp.decode(self.decrypt_rtcp(raw_data))
+
                     if not isinstance(packet, rtp.ReceiverReportPacket):
                         log.warning(
                             "Received unusual rtcp packet%s",
                             f"\n{'*'*78}\n{packet}\n{'*'*78}"
                         )
                         # TODO: Fabricate and send SenderReports and see what happens
-
-                    self.dispatch('voice_rtcp_packet', packet)
-                    continue
 
             except CryptoError:
                 msg = "CryptoError decoding data:\n  packet=%s\n  raw_data=%s"
@@ -209,7 +219,15 @@ class OpusEventAudioReader(_ReaderBase):
                 if packet.ssrc not in self.client._ssrc_to_id:
                     log.debug("Received packet for unknown ssrc %s", packet.ssrc)
 
-                self.dispatch('voice_packet', self._get_user(packet), packet)
+            finally:
+                if not packet:
+                    continue
+
+            # I need to get this out of the reader thread later
+            if rtcp:
+                self.sink.write_rtcp(packet)
+            else:
+                self.sink.write(self._get_user(packet), packet)
 
     def is_listening(self):
         return not self._end.is_set()

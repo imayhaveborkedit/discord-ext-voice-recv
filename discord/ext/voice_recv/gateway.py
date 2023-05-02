@@ -45,7 +45,6 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
 
     elif op == self.SPEAKING:
         user_id = int(data['user_id'])
-        vc = self._connection
         vc._add_ssrc(user_id, data['ssrc'])
 
         if vc.guild:
