@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import abc
 import time
 import bisect
 import logging
@@ -14,6 +15,27 @@ from discord.utils import get
 from discord.opus import Decoder
 
 log = logging.getLogger(__name__)
+
+
+class BasePacketDecoder(metaclass=abc.ABCMeta):
+    DELAY = Decoder.FRAME_LENGTH / 1000.0
+
+    @abc.abstractmethod
+    def feed_rtp(self, packet):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def feed_rtcp(self, packet):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def truncate(self, *, size=None):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def reset(self):
+        raise NotImplementedError
+
 
 class BufferedDecoder(threading.Thread):
     DELAY = Decoder.FRAME_LENGTH / 1000.0
@@ -270,18 +292,6 @@ class BufferedDecoder(threading.Thread):
             log.exception("Error in decoder %s", self.name)
             traceback.print_exc()
 
-
-class BasePacketDecoder:
-    DELAY = Decoder.FRAME_LENGTH / 1000.0
-
-    def feed_rtp(self, packet):
-        raise NotImplementedError
-    def feed_rtcp(self, packet):
-        raise NotImplementedError
-    def truncate(self, *, size=None):
-        raise NotImplementedError
-    def reset(self):
-        raise NotImplementedError
 
 class BufferedPacketDecoder(BasePacketDecoder):
     """Buffers and decodes packets from a single ssrc"""
