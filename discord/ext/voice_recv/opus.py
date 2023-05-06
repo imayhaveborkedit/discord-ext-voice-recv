@@ -1,20 +1,130 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import abc
 import time
+import queue
 import bisect
 import logging
 import threading
 import traceback
 
 from collections import deque
+from typing import TYPE_CHECKING, Optional
 
+from .buffer import SimpleJitterBuffer
 from .rtp import *
 
+import discord
 from discord.utils import get
 from discord.opus import Decoder
 
+if TYPE_CHECKING:
+    from .sinks import AudioSink
+
+    Packet = RTPPacket | FECPacket
+    User = discord.User | discord.Member
+
 log = logging.getLogger(__name__)
+
+
+class PacketRouter:
+    """docstring for PacketRouter"""
+
+    def __init__(self, sink):
+        self.sink: AudioSink = sink
+        self.decoders = {}
+
+        self._rtcp_buffer = queue.Queue()
+        self._end_writer = threading.Event()
+        self._rtcp_writer = threading.Thread(
+            target=self._rtcp_loop,
+            daemon=True,
+            name=f"rtcp-writer-{id(self):x}"
+        )
+        self._rtcp_writer.start()
+
+    def _get_decoder(self, ssrc: int) -> 'PacketDecoder':
+        decoder = self.decoders.get(ssrc, None)
+
+        if decoder is None:
+            decoder = self.decoders.setdefault(ssrc, PacketDecoder(self.sink, ssrc))
+
+        return decoder
+
+    def feed_rtp(self, packet: RTPPacket):
+        decoder = self._get_decoder(packet.ssrc)
+        decoder.feed_rtp(packet, None)
+
+    def feed_rtcp(self, packet: RTCPPacket):
+        self._rtcp_buffer.put_nowait(packet)
+
+    def _rtcp_loop(self):
+        while not self._end_writer.is_set():
+            try:
+                rtcp_packet = self._rtcp_buffer.get(timeout=2)
+            except queue.Empty:
+                continue
+            else:
+                self.sink.write_rtcp(rtcp_packet)
+
+    def destroy_decoder(self, ssrc):
+        decoder = self.decoders.pop(ssrc, None)
+        if decoder:
+            # flush?
+            decoder.stop()
+
+    def set_sink(self, sink: AudioSink):
+        ... # TODO
+
+    def stop(self):
+        self._end_writer.set()
+
+
+
+class PacketDecoder(threading.Thread):
+    """docstring for PacketDecoder"""
+
+    def __init__(self, sink, ssrc):
+        super().__init__(daemon=True, name=f'ssrc-{ssrc}')
+
+        self.sink: AudioSink = sink
+        self.ssrc: int = ssrc
+
+        self._decoder = Decoder() if sink.wants_opus() else None
+        self._buffer = SimpleJitterBuffer()
+        self._batch: list[Packet | None] = []
+
+        self._end_thread = threading.Event()
+        self._lock = threading.RLock()
+
+        self.start() # no way this causes any problems haha
+
+    def feed_rtp(self, packet: Packet, user: Optional[User]=None):
+        next_batch = self._buffer.push(packet)
+        self._batch.extend(next_batch)
+
+    def _do_run(self):
+        while not self._end_thread.is_set():
+            if self._batch:
+                item = self._batch.pop(0)
+            else:
+                # TODO: use an event or something
+                time.sleep(0.01)
+                continue
+
+            if item is not None:
+                self.sink.write(None, item) # type: ignore
+
+    def run(self):
+        try:
+            self._do_run()
+        except Exception:
+            log.exception("Error in %s", self.name)
+
+    def stop(self):
+        self._end_thread.set()
 
 
 class BasePacketDecoder(metaclass=abc.ABCMeta):

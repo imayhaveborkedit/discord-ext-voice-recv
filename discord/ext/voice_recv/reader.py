@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from . import rtp
 from .sinks import AudioSink
+from .opus import PacketRouter
 
 try:
     import nacl.secret
@@ -134,6 +135,7 @@ class OpusEventAudioReader(_ReaderBase):
         super().__init__(sink, client)
 
         self.after = after
+        self.router = PacketRouter(sink)
 
         self._current_error = None
         self._end = threading.Event()
@@ -144,7 +146,9 @@ class OpusEventAudioReader(_ReaderBase):
 
     def set_sink(self, sink: AudioSink) -> AudioSink:
         # Definitely not threadsafe but idk if it matters yet
-        return super().set_sink(sink)
+        sink = super().set_sink(sink)
+        self.router.set_sink(sink)
+        return sink
 
     def _get_user(self, packet):
         _, user_id = self.client._get_ssrc_mapping(ssrc=packet.ssrc)
@@ -223,11 +227,12 @@ class OpusEventAudioReader(_ReaderBase):
                 if not packet:
                     continue
 
-            # I need to get this out of the reader thread later
             if rtcp:
-                self.sink.write_rtcp(packet)
+                self.router.feed_rtcp(packet) # type: ignore
+                # self.sink.write_rtcp(packet)
             else:
-                self.sink.write(self._get_user(packet), packet)
+                self.router.feed_rtp(packet) # type: ignore
+                # self.sink.write(self._get_user(packet), packet) # type: ignore
 
     def is_listening(self):
         return not self._end.is_set()
