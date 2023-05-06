@@ -69,7 +69,6 @@ class AudioSink(metaclass=abc.ABCMeta):
 
     # TODO: handling opus vs pcm is not strictly mutually exclusive
     #       a sink could handle both but idk about that pattern
-    @property
     @abc.abstractmethod
     def wants_opus(self) -> bool:
         """Whether or not this sink handles opus data"""
@@ -93,7 +92,6 @@ class BasicSink(AudioSink):
     def write_rtcp(self, data):
         self.cb_rtcp(data) if self.cb_rtcp else None
 
-    @property
     def wants_opus(self):
         return True
 
