@@ -3,7 +3,7 @@
 from .voice_client import *
 from .reader import *
 from .sinks import *
-from .rtp import ExtensionID
+from .rtp import *
 
 __title__ = 'discord.ext.voice_recv'
 __author__ = 'Imayhaveborkedit'

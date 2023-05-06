@@ -1,15 +1,23 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import abc
 import time
 import wave
 import audioop
 import logging
 
+from typing import TYPE_CHECKING
+
 from .opus import Decoder
 from .buffer import SimpleJitterBuffer
 
 import discord
+
+if TYPE_CHECKING:
+    from .rtp import RTPPacket
+
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +67,7 @@ class AudioSink(metaclass=abc.ABCMeta):
         return self._voice_client
 
     @abc.abstractmethod
-    def write(self, user: discord.User | discord.Member | None, data):
+    def write(self, user: discord.User | discord.Member | None, data: RTPPacket):
         """Callback for when the sink receives data"""
         raise NotImplementedError
 
@@ -179,7 +187,7 @@ class PCMVolumeTransformerFilter(AudioSink):
 
     def write(self, data):
         data = audioop.mul(data.data, 2, min(self._volume, 2.0))
-        self.destination.write(None, data) # TODO: unfuck
+        self.destination.write(None, data) # TODO: unfuck # type: ignore
 
 # I need some sort of filter sink with a predicate or something
 # Which means I need to sort out the write() signature issue

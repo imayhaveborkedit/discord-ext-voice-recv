@@ -69,8 +69,8 @@ class SilencePacket(_PacketCmpMixin):
     decrypted_data = b'\xF8\xFF\xFE'
 
     def __init__(self, ssrc, timestamp):
-        self.ssrc = ssrc
-        self.timestamp = timestamp
+        self.ssrc: int = ssrc
+        self.timestamp: int = timestamp
 
     def __repr__(self):
         return '<SilencePacket timestamp={0.timestamp}, ssrc={0.ssrc}>'.format(self)
@@ -80,9 +80,9 @@ class FECPacket(_PacketCmpMixin):
     decrypted_data = b''
 
     def __init__(self, ssrc, timestamp, sequence):
-        self.ssrc = ssrc
-        self.timestamp = sequence
-        self.sequence = timestamp
+        self.ssrc: int = ssrc
+        self.timestamp: int = sequence
+        self.sequence: int = timestamp
 
     def __repr__(self):
         return '<FECPacket timestamp={0.timestamp}, sequence={0.sequence}, ssrc={0.ssrc}>'.format(self)
@@ -108,7 +108,10 @@ class RTPPacket(_PacketCmpMixin):
         self.marker   = bool(data[1] & 0b10000000)
         self.payload  =      data[1] & 0b01111111
 
-        self.sequence, self.timestamp, self.ssrc = self._hstruct.unpack_from(data)
+        sequence, timestamp, ssrc = self._hstruct.unpack_from(data)
+        self.sequence: int = sequence
+        self.timestamp: int = timestamp
+        self.ssrc: int = ssrc
 
         self.csrcs = ()
         self.extension = None
