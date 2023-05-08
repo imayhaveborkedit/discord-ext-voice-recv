@@ -172,6 +172,11 @@ class PacketDecoder(threading.Thread):
         self.join(wait) # is this necesary, useful even?
 
 
+#############################################################################
+# OLD CODE BELOW
+#############################################################################
+
+
 class BasePacketDecoder(metaclass=abc.ABCMeta):
     DELAY = Decoder.FRAME_LENGTH / 1000.0
 

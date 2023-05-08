@@ -108,6 +108,11 @@ class BasicSink(AudioSink):
         pass
 
 
+#############################################################################
+# OLD CODE BELOW
+#############################################################################
+
+
 class JitterBufferSink(AudioSink):
     def __init__(self, dest, **kwargs):
         self.destination = dest
