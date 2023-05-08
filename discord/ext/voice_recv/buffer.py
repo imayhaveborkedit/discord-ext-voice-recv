@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import bisect
-from typing import TYPE_CHECKING
 
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .rtp import RTPPacket, FECPacket
     Packet = RTPPacket | FECPacket
+
 
 class SimpleJitterBuffer:
     """Push item in, returns as many contiguous items as possible"""
@@ -19,8 +20,12 @@ class SimpleJitterBuffer:
 
         self.maxsize = maxsize
         self.prefill = prefill
+        self._prefill = prefill # original prefill
         self._last_seq: int = 0
         self._buffer: list[Packet] = []
+
+    def __len__(self):
+        return len(self._buffer)
 
     def push(self, item: Packet) -> list[Packet | None]:
         if item.sequence <= self._last_seq and self._last_seq:
@@ -70,4 +75,25 @@ class SimpleJitterBuffer:
 
         return []
 
-    # TODO: add flush function
+    def flush(self, reset: bool=False) -> list[Packet | None]:
+        if reset:
+            self.prefill = self._prefill
+
+        if not self._buffer:
+            return []
+
+        seq = self._buffer[0].sequence
+        remaining: list[Packet | None] = []
+
+        if self._last_seq + 1 != seq:
+            assert self._last_seq + 1 < seq
+            jump = seq - self._last_seq + 1
+            remaining.extend(None for _ in range(jump))
+
+        for packet in self._buffer:
+            gap = packet.sequence - seq
+            remaining.extend(None for _ in range(gap))
+            remaining.append(packet)
+            seq = packet.sequence + 1
+
+        return remaining
