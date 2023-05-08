@@ -17,6 +17,7 @@ import discord
 
 if TYPE_CHECKING:
     from .rtp import RTPPacket
+    from .voice_client import VoiceRecvClient
 
 
 log = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ __all__ = [
 class SinkExit(discord.DiscordException):
     """A signal type exception (like ``GeneratorExit``) to raise in a Sink's write() method to stop it.
 
-    TODO: make better words
+    TODO: do i even keep this?
 
     Parameters
     -----------
@@ -52,22 +53,22 @@ class SinkExit(discord.DiscordException):
 class VoiceRecvException(discord.DiscordException):
     """Generic exception for voice recv related errors"""
 
-    def __init__(self, message):
+    def __init__(self, message: str):
         self.message = message
 
 class AudioSink(metaclass=abc.ABCMeta):
-    _voice_client: discord.VoiceClient | None = None
+    _voice_client: VoiceRecvClient | None = None
 
     def __del__(self):
         self.cleanup()
 
     @property
-    def voice_client(self) -> discord.VoiceClient:
+    def voice_client(self) -> VoiceRecvClient:
         assert self._voice_client
         return self._voice_client
 
     @abc.abstractmethod
-    def write(self, user: discord.User | discord.Member | None, data: RTPPacket):
+    def write(self, user: discord.User | discord.Member | None, packet: RTPPacket):
         """Callback for when the sink receives data"""
         raise NotImplementedError
 
@@ -79,7 +80,7 @@ class AudioSink(metaclass=abc.ABCMeta):
     #       a sink could handle both but idk about that pattern
     @abc.abstractmethod
     def wants_opus(self) -> bool:
-        """Whether or not this sink handles opus data"""
+        """If sink handles opus data"""
         raise NotImplementedError
 
     @abc.abstractmethod

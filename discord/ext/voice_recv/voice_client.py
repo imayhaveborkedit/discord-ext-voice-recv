@@ -23,7 +23,7 @@ class VoiceRecvClient(discord.VoiceClient):
         super().__init__(client, channel)
 
         self._connecting = threading.Condition()
-        self._reader = None
+        self._reader: AudioReader | None = None
         self._ssrc_to_id = {}
         self._id_to_ssrc = {}
 
@@ -73,20 +73,21 @@ class VoiceRecvClient(discord.VoiceClient):
     # TODO: copy over new functions
     # add/remove/get ssrc
 
-    def _add_ssrc(self, user_id, ssrc):
+    def _add_ssrc(self, user_id: int, ssrc: int):
         self._ssrc_to_id[ssrc] = user_id
         self._id_to_ssrc[user_id] = ssrc
 
-    def _remove_ssrc(self, *, user_id):
+    def _remove_ssrc(self, *, user_id: int):
         ssrc = self._id_to_ssrc.pop(user_id, None)
         if ssrc:
             self._ssrc_to_id.pop(ssrc, None)
 
-    def _get_ssrc_mapping(self, *, ssrc):
+    # This function has a weird sig because of old code refactors, will fix later
+    def _get_ssrc_mapping(self, *, ssrc: int):
         uid = self._ssrc_to_id.get(ssrc)
         return ssrc, uid
 
-    def listen(self, sink):
+    def listen(self, sink: AudioSink):
         """Receives audio into a :class:`AudioSink`. TODO: wording"""
 
         if not self.is_connected():
@@ -101,7 +102,7 @@ class VoiceRecvClient(discord.VoiceClient):
         self._reader = AudioReader(sink, self)
         self._reader.start()
 
-    def is_listening(self):
+    def is_listening(self) -> bool:
         """Indicates if we're currently receiving audio."""
         return self._reader is not None and self._reader.is_listening()
 
@@ -123,7 +124,7 @@ class VoiceRecvClient(discord.VoiceClient):
         self.stop_listening()
 
     @property
-    def sink(self):
+    def sink(self) -> AudioSink | None:
         return self._reader.sink if self._reader else None
 
     @sink.setter

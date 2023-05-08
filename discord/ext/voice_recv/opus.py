@@ -45,7 +45,7 @@ class PacketRouter:
         )
         self._rtcp_writer.start()
 
-    def _get_decoder(self, ssrc: int) -> 'PacketDecoder':
+    def _get_decoder(self, ssrc: int) -> PacketDecoder:
         decoder = self.decoders.get(ssrc, None)
 
         if decoder is None:
@@ -69,7 +69,7 @@ class PacketRouter:
             else:
                 self.sink.write_rtcp(rtcp_packet)
 
-    def destroy_decoder(self, ssrc):
+    def destroy_decoder(self, ssrc: int):
         decoder = self.decoders.pop(ssrc, None)
         if decoder:
             # flush?
