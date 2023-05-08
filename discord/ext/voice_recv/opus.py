@@ -103,7 +103,7 @@ class PacketDecoder(threading.Thread):
         self._cached_id: int | None = None
 
         self._end_thread = threading.Event()
-        self._lock = threading.RLock() # need this for changing sink
+        self._lock = threading.Lock()
 
         self.start() # no way this causes any problems haha
 
@@ -132,6 +132,10 @@ class PacketDecoder(threading.Thread):
         self._batch.extend(rest)
         ...
 
+    def set_sink(self, sink: AudioSink):
+        with self._lock:
+            self.sink = sink
+
     def _do_run(self):
         while not self._end_thread.is_set():
             if self._batch:
@@ -141,13 +145,20 @@ class PacketDecoder(threading.Thread):
                 time.sleep(0.01)
                 continue
 
-            if packet is not None:
+            if packet is None:
+                # TODO: this is where silence goes right
+                continue
+
+            member = self._get_cached_member()
+
+            if not member:
+                self._cached_id = self._lookup_ssrc(packet.ssrc)
                 member = self._get_cached_member()
 
-                if not member:
-                    self._cached_id = self._lookup_ssrc(packet.ssrc)
-                    member = self._get_cached_member()
+            if not self.sink.wants_opus():
+                ... # TODO: decode opus to pcm
 
+            with self._lock:
                 self.sink.write(member, packet) # type: ignore
 
     def run(self):
