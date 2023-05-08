@@ -44,18 +44,10 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
             vc._reader.update_secret_box()
 
     elif op == self.SPEAKING:
-        user_id = int(data['user_id'])
-        vc._add_ssrc(user_id, data['ssrc'])
-
-        if vc.guild:
-            user = vc.guild.get_member(user_id)
-        else:
-            user = vc._state.get_user(user_id)
-
-        vc._state.dispatch('speaking_update', user, data['speaking'])
+        # SPEAKING is not actually speaking anymore but it still has the ssrc
+        vc._add_ssrc(int(data['user_id']), data['ssrc'])
 
     elif op == self.CLIENT_CONNECT:
-        # TODO: is SPEAKING[ssrc] the same as this ssrc
         vc._add_ssrc(int(data['user_id']), data['audio_ssrc'])
 
     elif op == self.CLIENT_DISCONNECT:

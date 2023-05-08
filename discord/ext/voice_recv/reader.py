@@ -152,7 +152,6 @@ class OpusEventAudioReader(_ReaderBase):
 
     def _get_user(self, packet):
         _, user_id = self.client._get_ssrc_mapping(ssrc=packet.ssrc)
-        # may need to change this for calls or something
         return self.client.guild.get_member(user_id) if user_id else None
 
     def _do_run(self):
@@ -229,10 +228,11 @@ class OpusEventAudioReader(_ReaderBase):
 
             if rtcp:
                 self.router.feed_rtcp(packet) # type: ignore
-                # self.sink.write_rtcp(packet)
             else:
+                # user = self._get_user(packet)
+                # log.debug("%s/%s: %s", user, user.id if user else None, packet)
+                # TODO: ah shit i gotta deal with the race between ws op 5
                 self.router.feed_rtp(packet) # type: ignore
-                # self.sink.write(self._get_user(packet), packet) # type: ignore
 
     def is_listening(self):
         return not self._end.is_set()

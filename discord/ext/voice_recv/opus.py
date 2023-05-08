@@ -11,7 +11,7 @@ import threading
 import traceback
 
 from collections import deque
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Deque
 
 from .buffer import SimpleJitterBuffer
 from .rtp import *
@@ -55,7 +55,7 @@ class PacketRouter:
 
     def feed_rtp(self, packet: RTPPacket):
         decoder = self._get_decoder(packet.ssrc)
-        decoder.feed_rtp(packet, None)
+        decoder.feed_rtp(packet)
 
     def feed_rtcp(self, packet: RTCPPacket):
         self._rtcp_buffer.put_nowait(packet)
@@ -72,8 +72,8 @@ class PacketRouter:
     def destroy_decoder(self, ssrc: int):
         decoder = self.decoders.pop(ssrc, None)
         if decoder:
-            # flush?
             decoder.stop()
+            decoder.flush()
 
     def set_sink(self, sink: AudioSink):
         ... # TODO
@@ -81,41 +81,74 @@ class PacketRouter:
     def stop(self):
         self._end_writer.set()
 
+        for ssrc in self.decoders.keys():
+            self.destroy_decoder(ssrc)
 
 
 class PacketDecoder(threading.Thread):
     """docstring for PacketDecoder"""
 
     def __init__(self, sink, ssrc):
-        super().__init__(daemon=True, name=f'ssrc-{ssrc}')
+        super().__init__(
+            daemon=True,
+            name=f'{type(self).__name__} ssrc-{ssrc}'
+        )
 
         self.sink: AudioSink = sink
         self.ssrc: int = ssrc
 
         self._decoder = Decoder() if sink.wants_opus() else None
         self._buffer = SimpleJitterBuffer()
-        self._batch: list[Packet | None] = []
+        self._batch: Deque[Packet | None] = deque()
+        self._cached_id: int | None = None
 
         self._end_thread = threading.Event()
-        self._lock = threading.RLock()
+        self._lock = threading.RLock() # need this for changing sink
 
         self.start() # no way this causes any problems haha
 
-    def feed_rtp(self, packet: Packet, user: Optional[User]=None):
+    def _lookup_ssrc(self, ssrc: int) -> int | None:
+        vc = self.sink.voice_client
+        _, user_id = vc._get_ssrc_mapping(ssrc=ssrc)
+
+        return user_id
+
+    def _get_user(self, user_id: int) -> User | None:
+        vc = self.sink.voice_client
+        return vc.guild.get_member(user_id) or vc.client.get_user(user_id)
+
+    def _get_cached_member(self) -> User | None:
+        return self._get_user(self._cached_id) if self._cached_id else None
+
+    def feed_rtp(self, packet: Packet):
+        if self._end_thread.is_set():
+            raise RuntimeError("No more packets please") # temp
+
         next_batch = self._buffer.push(packet)
         self._batch.extend(next_batch)
+
+    def flush(self):
+        rest = self._buffer.flush()
+        self._batch.extend(rest)
+        ...
 
     def _do_run(self):
         while not self._end_thread.is_set():
             if self._batch:
-                item = self._batch.pop(0)
+                packet = self._batch.popleft()
             else:
                 # TODO: use an event or something
                 time.sleep(0.01)
                 continue
 
-            if item is not None:
-                self.sink.write(None, item) # type: ignore
+            if packet is not None:
+                member = self._get_cached_member()
+
+                if not member:
+                    self._cached_id = self._lookup_ssrc(packet.ssrc)
+                    member = self._get_cached_member()
+
+                self.sink.write(member, packet) # type: ignore
 
     def run(self):
         try:
@@ -123,8 +156,9 @@ class PacketDecoder(threading.Thread):
         except Exception:
             log.exception("Error in %s", self.name)
 
-    def stop(self):
+    def stop(self, *, wait: float | None=None):
         self._end_thread.set()
+        self.join(wait) # is this necesary, useful even?
 
 
 class BasePacketDecoder(metaclass=abc.ABCMeta):
