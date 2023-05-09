@@ -76,7 +76,9 @@ class PacketRouter:
             decoder.flush()
 
     def set_sink(self, sink: AudioSink):
-        ... # TODO
+        # I probably need to lock this dont I
+        for decoder in self.decoders.values():
+            decoder.set_sink(sink)
 
     def stop(self):
         self._end_writer.set()
@@ -91,7 +93,7 @@ class PacketDecoder(threading.Thread):
     def __init__(self, sink, ssrc):
         super().__init__(
             daemon=True,
-            name=f'{type(self).__name__} ssrc-{ssrc}'
+            name=f'decoder-ssrc-{ssrc}'
         )
 
         self.sink: AudioSink = sink
