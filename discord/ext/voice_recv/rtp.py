@@ -3,7 +3,7 @@
 import struct
 import logging
 
-from math import ceil
+from math import ceil, modf
 from collections import namedtuple
 
 log = logging.getLogger(__name__)
@@ -42,8 +42,11 @@ def decode(data):
 def is_rtcp(data):
     return 200 <= data[1] <= 204
 
-def _parse_low(x):
-    return x / 2.0 ** x.bit_length()
+def _parse_low(x: int, bitlen: int=32) -> float:
+    return x / 2.0 ** bitlen
+
+def _into_low(x: float, bitlen: int=32) -> int:
+    return int(x * 2.0 ** bitlen)
 
 
 class _PacketCmpMixin:
@@ -129,6 +132,9 @@ class RTPPacket(_PacketCmpMixin):
 
         # TODO?: impl padding calculations (though discord doesn't seem to use that bit)
 
+    def is_silence(self) -> bool:
+        return self.decrypted_data == SilencePacket.decrypted_data
+
     def update_ext_headers(self, data):
         """Adds extended header data to this packet, returns payload offset"""
 
@@ -167,7 +173,6 @@ class RTPPacket(_PacketCmpMixin):
             offset += 1 + element_len
             n += 1
 
-
     def _dump_info(self):
         attrs = {name: getattr(self, name) for name in self.__slots__}
         return ''.join((
@@ -176,9 +181,12 @@ class RTPPacket(_PacketCmpMixin):
             '>'))
 
     def __repr__(self):
-        return '<RTPPacket ext={0.extended}, ' \
-               'timestamp={0.timestamp}, sequence={0.sequence}, ' \
-               'ssrc={0.ssrc}, size={1}, x={0.extended}' \
+        return '<RTPPacket ' \
+               'ssrc={0.ssrc}, ' \
+               'sequence={0.sequence}, ' \
+               'timestamp={0.timestamp}, ' \
+               'size={1}, ' \
+               'ext={0.extended}' \
                '>'.format(self, len(self.data))
 
 # http://www.rfcreader.com/#rfc3550_line855
