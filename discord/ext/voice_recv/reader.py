@@ -45,6 +45,8 @@ class _ReaderBase(threading.Thread):
         self.sink: AudioSink = sink
         self.client: VoiceRecvClient = client
 
+        self.sink._voice_client = client
+
         self.box = nacl.secret.SecretBox(bytes(client.secret_key))
         self.decrypt_rtp = getattr(self, '_decrypt_rtp_' + client.mode)
         self.decrypt_rtcp = getattr(self, '_decrypt_rtcp_' + client.mode)
