@@ -26,6 +26,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+__all__ = [
+    "VoiceData"
+]
+
 
 class VoiceData:
     """docstring for VoiceData"""

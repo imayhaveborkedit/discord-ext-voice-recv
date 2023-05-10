@@ -3,6 +3,7 @@
 from .voice_client import *
 from .reader import *
 from .sinks import *
+from .opus import *
 from .rtp import *
 
 __title__ = 'discord.ext.voice_recv'
