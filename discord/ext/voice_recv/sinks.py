@@ -16,8 +16,17 @@ from .buffer import SimpleJitterBuffer
 import discord
 
 if TYPE_CHECKING:
-    from .rtp import RTPPacket
+    from typing import Callable, Optional, Any
+
+    from .rtp import RTPPacket, RTCPPacket, FakePacket
     from .voice_client import VoiceRecvClient
+    from .opus import VoiceData
+
+    Packet = RTPPacket | FakePacket
+    User = discord.User | discord.Member
+
+    BasicSinkWriteCB = Callable[[Optional[User], VoiceData], Any]
+    BasicSinkWriteRTCPCB = Callable[[RTCPPacket], Any]
 
 
 log = logging.getLogger(__name__)
@@ -30,26 +39,9 @@ __all__ = [
     # 'ConditionalFilter',
     # 'TimedFilter',
     # 'UserFilter',
-    # 'SinkExit',
 ]
 
-class SinkExit(discord.DiscordException):
-    """A signal type exception (like ``GeneratorExit``) to raise in a Sink's write() method to stop it.
-
-    TODO: do i even keep this?
-
-    Parameters
-    -----------
-    drain: :class:`bool`
-        ...
-    flush: :class:`bool`
-        ...
-    """
-
-    def __init__(self, *, drain=True, flush=False):
-        self.drain = drain
-        self.flush = flush
-
+# TODO: use this in more places
 class VoiceRecvException(discord.DiscordException):
     """Generic exception for voice recv related errors"""
 
@@ -57,7 +49,7 @@ class VoiceRecvException(discord.DiscordException):
         self.message = message
 
 class AudioSink(metaclass=abc.ABCMeta):
-    _voice_client: VoiceRecvClient | None = None
+    _voice_client: Optional[VoiceRecvClient] = None
 
     def __del__(self):
         self.cleanup()
@@ -67,21 +59,21 @@ class AudioSink(metaclass=abc.ABCMeta):
         assert self._voice_client
         return self._voice_client
 
-    @abc.abstractmethod
-    def write(self, user: discord.User | discord.Member | None, packet: RTPPacket):
-        """Callback for when the sink receives data"""
-        raise NotImplementedError
-
-    def write_rtcp(self, data):
-        """Optional callback for when the sink receives an rtcp packet"""
-        pass
-
     # TODO: handling opus vs pcm is not strictly mutually exclusive
     #       a sink could handle both but idk about that pattern
     @abc.abstractmethod
     def wants_opus(self) -> bool:
         """If sink handles opus data"""
         raise NotImplementedError
+
+    @abc.abstractmethod
+    def write(self, user: Optional[User], data: VoiceData):
+        """Callback for when the sink receives data"""
+        raise NotImplementedError
+
+    def write_rtcp(self, packet: RTCPPacket):
+        """Optional callback for when the sink receives an rtcp packet"""
+        pass
 
     @abc.abstractmethod
     def cleanup(self):
@@ -91,18 +83,24 @@ class AudioSink(metaclass=abc.ABCMeta):
 class BasicSink(AudioSink):
     """Simple callback based sink."""
 
-    def __init__(self, event, *, rtcp_event=None):
+    def __init__(self,
+        event: BasicSinkWriteCB,
+        *,
+        rtcp_event: Optional[BasicSinkWriteRTCPCB]=None,
+        opus: bool=True
+    ):
         self.cb = event
         self.cb_rtcp = rtcp_event
+        self.opus = opus
 
-    def write(self, user, data):
+    def wants_opus(self) -> bool:
+        return self.opus
+
+    def write(self, user: Optional[User], data: VoiceData):
         self.cb(user, data)
 
-    def write_rtcp(self, data):
+    def write_rtcp(self, data: RTCPPacket):
         self.cb_rtcp(data) if self.cb_rtcp else None
-
-    def wants_opus(self):
-        return True
 
     def cleanup(self):
         pass

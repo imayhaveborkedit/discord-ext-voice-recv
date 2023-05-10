@@ -1,10 +1,19 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import struct
 import logging
 
 from math import ceil, modf
 from collections import namedtuple
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Optional, Literal
+
+    OpusSilence = Literal[b'\xF8\xFF\xFE']
 
 log = logging.getLogger(__name__)
 
@@ -13,9 +22,11 @@ __all__ = [
     'RTCPPacket',
     'SilencePacket',
     'ExtensionID',
-    'FECPacket'
+    'FakePacket'
 ]
 
+
+OPUS_SILENCE: OpusSilence = b'\xF8\xFF\xFE'
 
 class ExtensionID:
     audio_power = 1
@@ -67,28 +78,37 @@ class _PacketCmpMixin:
             raise TypeError("packet ssrc mismatch (%s, %s)" % (self.ssrc, other.ssrc))
         return self.timestamp == other.timestamp
 
+    def is_silence(self) -> bool:
+        data = getattr(self, 'decrypted_data', None)
+        return data == OPUS_SILENCE
+
 class SilencePacket(_PacketCmpMixin):
     __slots__ = ('ssrc', 'timestamp')
-    decrypted_data = b'\xF8\xFF\xFE'
+    decrypted_data: Literal[OpusSilence] = OPUS_SILENCE
+    extension_data: dict = {}
 
-    def __init__(self, ssrc, timestamp):
-        self.ssrc: int = ssrc
-        self.timestamp: int = timestamp
+    def __init__(self, ssrc: int, timestamp: int):
+        self.ssrc = ssrc
+        self.timestamp = timestamp
 
     def __repr__(self):
-        return '<SilencePacket timestamp={0.timestamp}, ssrc={0.ssrc}>'.format(self)
+        return '<SilencePacket ssrc={0.ssrc}, timestamp={0.timestamp}>'.format(self)
 
-class FECPacket(_PacketCmpMixin):
+    def is_silence(self) -> bool:
+        return True
+
+class FakePacket(_PacketCmpMixin):
     __slots__ = ('ssrc', 'timestamp', 'sequence')
-    decrypted_data = b''
+    decrypted_data: bytes = b''
+    extension_data: dict = {}
 
-    def __init__(self, ssrc, timestamp, sequence):
-        self.ssrc: int = ssrc
-        self.timestamp: int = sequence
-        self.sequence: int = timestamp
+    def __init__(self, ssrc: int, timestamp: int, sequence: int):
+        self.ssrc = ssrc
+        self.timestamp = sequence
+        self.sequence = timestamp
 
     def __repr__(self):
-        return '<FECPacket timestamp={0.timestamp}, sequence={0.sequence}, ssrc={0.ssrc}>'.format(self)
+        return '<FakePacket ssrc={0.ssrc}, timestamp={0.timestamp}, sequence={0.sequence}>'.format(self)
 
 # Consider adding silence attribute to differentiate (to skip isinstance)
 
@@ -122,7 +142,7 @@ class RTPPacket(_PacketCmpMixin):
 
         self.header = data[:12]
         self.data = data[12:]
-        self.decrypted_data = None
+        self.decrypted_data: Optional[bytes] = None
 
         if self.cc:
             fmt = '>%sI' % self.cc
@@ -131,9 +151,6 @@ class RTPPacket(_PacketCmpMixin):
             self.data = data[offset:]
 
         # TODO?: impl padding calculations (though discord doesn't seem to use that bit)
-
-    def is_silence(self) -> bool:
-        return self.decrypted_data == SilencePacket.decrypted_data
 
     def update_ext_headers(self, data):
         """Adds extended header data to this packet, returns payload offset"""

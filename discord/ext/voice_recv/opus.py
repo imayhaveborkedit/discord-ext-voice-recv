@@ -2,38 +2,54 @@
 
 from __future__ import annotations
 
-import abc
 import time
 import queue
-import bisect
 import logging
 import threading
-import traceback
 
 from collections import deque
-from typing import TYPE_CHECKING, Deque
+from typing import TYPE_CHECKING
 
 from .buffer import SimpleJitterBuffer
 from .rtp import *
 
 import discord
-from discord.utils import get
 from discord.opus import Decoder
 
 if TYPE_CHECKING:
+    from typing import Deque, Optional, Tuple
     from .sinks import AudioSink
 
-    Packet = RTPPacket | FECPacket
+    AudioPacket = RTPPacket | FakePacket
+    Packet = AudioPacket | SilencePacket
     User = discord.User | discord.Member
 
 log = logging.getLogger(__name__)
 
 
+class VoiceData:
+    """docstring for VoiceData"""
+
+    def __init__(self,
+        packet: Packet,
+        source: Optional[User],
+        *,
+        pcm: Optional[bytes]=None
+    ):
+        self.packet = packet
+        self.source = source
+        self.pcm = pcm
+
+    @property
+    def opus(self) -> Optional[bytes]:
+        return self.packet.decrypted_data
+
+
 class PacketRouter:
     """docstring for PacketRouter"""
 
-    def __init__(self, sink):
-        self.sink: AudioSink = sink
+    def __init__(self, sink: AudioSink):
+        self.sink = sink
         self.decoders = {}
 
         self._rtcp_buffer = queue.Queue()
@@ -90,41 +106,45 @@ class PacketRouter:
 class PacketDecoder(threading.Thread):
     """docstring for PacketDecoder"""
 
-    def __init__(self, sink, ssrc):
+    def __init__(self, sink: AudioSink, ssrc: int):
         super().__init__(
             daemon=True,
             name=f'decoder-ssrc-{ssrc}'
         )
 
-        self.sink: AudioSink = sink
-        self.ssrc: int = ssrc
+        self.sink = sink
+        self.ssrc = ssrc
 
-        self._decoder = Decoder() if sink.wants_opus() else None
+        self._decoder = None if sink.wants_opus() else Decoder()
         self._buffer = SimpleJitterBuffer()
-        self._batch: Deque[Packet | None] = deque()
-        self._cached_id: int | None = None
+        self._batch: Deque[RTPPacket | None] = deque()
+        self._cached_id: Optional[int] = None
+
+        self._last_ts: int = 0
+        self._last_seq: int = 0
 
         self._end_thread = threading.Event()
         self._lock = threading.Lock()
 
         self.start() # no way this causes any problems haha
 
-    def _lookup_ssrc(self, ssrc: int) -> int | None:
+    def _lookup_ssrc(self, ssrc: int) -> Optional[int]:
         vc = self.sink.voice_client
         _, user_id = vc._get_ssrc_mapping(ssrc=ssrc)
 
         return user_id
 
-    def _get_user(self, user_id: int) -> User | None:
+    def _get_user(self, user_id: int) -> Optional[User]:
         vc = self.sink.voice_client
         return vc.guild.get_member(user_id) or vc.client.get_user(user_id)
 
-    def _get_cached_member(self) -> User | None:
+    def _get_cached_member(self) -> Optional[User]:
         return self._get_user(self._cached_id) if self._cached_id else None
 
-    def feed_rtp(self, packet: Packet):
+    def feed_rtp(self, packet: RTPPacket):
         if self._end_thread.is_set():
-            raise RuntimeError("No more packets please") # temp
+            log.warning("New packets after thread end in %s")
+            return
 
         next_batch = self._buffer.push(packet)
         self._batch.extend(next_batch)
@@ -137,6 +157,39 @@ class PacketDecoder(threading.Thread):
     def set_sink(self, sink: AudioSink):
         with self._lock:
             self.sink = sink
+            if not sink.wants_opus():
+                ... # TODO: set (or reset?) decoder
+
+    def _make_fakepacket(self) -> FakePacket:
+        ts = self._last_ts + Decoder.SAMPLES_PER_FRAME
+        seq = self._last_seq + 1
+        return FakePacket(self.ssrc, ts, seq)
+
+    def _handle_decode(self, packet: RTPPacket | None) -> Tuple[Packet, bytes]:
+        assert self._decoder is not None
+
+        # Decode as per usual
+        if packet is not None:
+            pcm = self._decoder.decode(packet.decrypted_data, fec=False)
+            return packet, pcm
+
+        # None packet, need to check next one to use fec
+        elif self._batch and self._batch[0] is not None:
+            # TODO: This will fail if we are caught up on the jitter buffer.
+            #       There will need to be an option somewhere to maintain a
+            #       size 1 buffer to use fec or to just not use fec (current)
+
+            nextdata = self._batch[0].decrypted_data
+            assert nextdata is not None
+
+            pcm = self._decoder.decode(nextdata, fec=True)
+
+        # Need to drop a packet
+        else:
+            pcm = self._decoder.decode(None, fec=False)
+
+        fakepacket = self._make_fakepacket()
+        return fakepacket, pcm
 
     def _do_run(self):
         while not self._end_thread.is_set():
@@ -147,21 +200,23 @@ class PacketDecoder(threading.Thread):
                 time.sleep(0.01)
                 continue
 
-            if packet is None:
-                # TODO: this is where silence goes right
-                continue
+            pcm = None
+            if not self.sink.wants_opus():
+                packet, pcm = self._handle_decode(packet)
+
+            elif packet is None:
+                packet = self._make_fakepacket()
 
             member = self._get_cached_member()
 
             if not member:
-                self._cached_id = self._lookup_ssrc(packet.ssrc)
+                self._cached_id = self._lookup_ssrc(self.ssrc)
                 member = self._get_cached_member()
 
-            if not self.sink.wants_opus():
-                ... # TODO: decode opus to pcm
+            data = VoiceData(packet, member, pcm=pcm)
 
             with self._lock:
-                self.sink.write(member, packet) # type: ignore
+                self.sink.write(member, data)
 
     def run(self):
         try:
@@ -169,7 +224,7 @@ class PacketDecoder(threading.Thread):
         except Exception:
             log.exception("Error in %s", self.name)
 
-    def stop(self, *, wait: float | None=None):
+    def stop(self, *, wait: Optional[float]=None):
         self._end_thread.set()
         self.join(wait) # is this necesary, useful even?
 
