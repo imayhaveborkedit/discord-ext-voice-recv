@@ -20,7 +20,13 @@ except ImportError:
     pass
 
 if TYPE_CHECKING:
+    from typing import Optional, Callable, Any
     from .voice_client import VoiceRecvClient
+    from .rtp import RTPPacket, RTCPPacket
+
+    DecryptRTP = Callable[[RTPPacket], bytes]
+    DecryptRTCP = Callable[[bytes], bytes]
+    AfterCB = Callable[[Optional[Exception]], Any]
 
 log = logging.getLogger(__name__)
 
@@ -38,18 +44,18 @@ class VoiceData:
         self.packet = packet
 
 class _ReaderBase(threading.Thread):
-    def __init__(self, sink, client, **kwargs):
+    def __init__(self, sink: AudioSink, client: VoiceRecvClient, **kwargs):
         daemon = kwargs.pop('daemon', True)
         super().__init__(daemon=daemon, **kwargs)
 
-        self.sink: AudioSink = sink
-        self.client: VoiceRecvClient = client
+        self.sink = sink
+        self.client = client
 
         self.sink._voice_client = client
 
         self.box = nacl.secret.SecretBox(bytes(client.secret_key))
-        self.decrypt_rtp = getattr(self, '_decrypt_rtp_' + client.mode)
-        self.decrypt_rtcp = getattr(self, '_decrypt_rtcp_' + client.mode)
+        self.decrypt_rtp: DecryptRTP = getattr(self, '_decrypt_rtp_' + client.mode)
+        self.decrypt_rtcp: DecryptRTCP = getattr(self, '_decrypt_rtcp_' + client.mode)
 
     def run(self):
         raise NotImplementedError
@@ -129,8 +135,14 @@ class _ReaderBase(threading.Thread):
         return header + result
 
 
-class OpusEventAudioReader(_ReaderBase):
-    def __init__(self, sink, client, *, after=None):
+
+class AudioReader(_ReaderBase):
+    def __init__(self,
+        sink: AudioSink,
+        client: VoiceRecvClient,
+        *,
+        after: Optional[AfterCB]=None
+    ):
         if after is not None and not callable(after):
             raise TypeError('Expected a callable for the "after" parameter.')
 
@@ -139,7 +151,7 @@ class OpusEventAudioReader(_ReaderBase):
         self.after = after
         self.router = PacketRouter(sink)
 
-        self._current_error = None
+        self._current_error: Optional[Exception] = None
         self._end = threading.Event()
 
     @property
@@ -199,18 +211,19 @@ class OpusEventAudioReader(_ReaderBase):
             try:
                 if not rtp.is_rtcp(raw_data):
                     packet = rtp.decode(raw_data)
+                    assert isinstance(packet, RTPPacket)
+
                     packet.decrypted_data = self.decrypt_rtp(packet)
                 else:
                     rtcp = True
                     packet = rtp.decode(self.decrypt_rtcp(raw_data))
+                    assert isinstance(packet, RTCPPacket)
 
                     if not isinstance(packet, rtp.ReceiverReportPacket):
                         log.warning(
                             "Received unusual rtcp packet%s",
                             f"\n{'*'*78}\n{packet}\n{'*'*78}"
                         )
-                        # TODO: Fabricate and send SenderReports and see what happens
-
             except CryptoError:
                 msg = "CryptoError decoding data:\n  packet=%s\n  raw_data=%s"
                 log.exception(msg, packet, raw_data)
@@ -231,8 +244,6 @@ class OpusEventAudioReader(_ReaderBase):
             if rtcp:
                 self.router.feed_rtcp(packet) # type: ignore
             else:
-                # user = self._get_user(packet)
-                # log.debug("%s/%s: %s", user, user.id if user else None, packet)
                 # TODO: ah shit i gotta deal with the race between ws op 5
                 self.router.feed_rtp(packet) # type: ignore
 
@@ -422,6 +433,3 @@ class OpusEventAudioReader(_ReaderBase):
 #                self.after(self._current_error)
 #            except Exception:
 #                log.exception('Calling the after function failed.')
-
-
-AudioReader = OpusEventAudioReader

@@ -29,11 +29,11 @@ __all__ = [
 OPUS_SILENCE: OpusSilence = b'\xF8\xFF\xFE'
 
 class ExtensionID:
-    audio_power = 1
-    speaking_state = 9
+    audio_power: Literal[1] = 1
+    speaking_state: Literal[9] = 9
 
 
-def decode(data):
+def decode(data: bytes) -> RTPPacket | RTCPPacket:
     """Creates an :class:`RTPPacket` or an :class:`RTCPPacket`.
 
     Parameters
@@ -50,7 +50,7 @@ def decode(data):
     assert data[0] >> 6 == 2 # check version bits
     return _rtcp_map.get(data[1], RTPPacket)(data)
 
-def is_rtcp(data):
+def is_rtcp(data: bytes) -> bool:
     return 200 <= data[1] <= 204
 
 def _parse_low(x: int, bitlen: int=32) -> float:
