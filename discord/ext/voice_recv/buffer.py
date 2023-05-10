@@ -7,8 +7,7 @@ import bisect
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .rtp import RTPPacket, FECPacket
-    Packet = RTPPacket | FECPacket
+    from .rtp import RTPPacket
 
 
 class SimpleJitterBuffer:
@@ -22,12 +21,12 @@ class SimpleJitterBuffer:
         self.prefill = prefill
         self._prefill = prefill # original prefill
         self._last_seq: int = 0
-        self._buffer: list[Packet] = []
+        self._buffer: list[RTPPacket] = []
 
     def __len__(self):
         return len(self._buffer)
 
-    def push(self, item: Packet) -> list[Packet | None]:
+    def push(self, item: RTPPacket) -> list[RTPPacket | None]:
         if item.sequence <= self._last_seq and self._last_seq:
             return []
 
@@ -39,7 +38,7 @@ class SimpleJitterBuffer:
 
         return self._get_ready_batch()
 
-    def _get_ready_batch(self) -> list[Packet | None]:
+    def _get_ready_batch(self) -> list[RTPPacket | None]:
         if not self._buffer or self.prefill > 0:
             return []
 
@@ -62,11 +61,11 @@ class SimpleJitterBuffer:
             if segment:
                 self._last_seq = segment[-1].sequence
 
-            return segment
+            return segment # type: ignore
 
         # size check and add skips as None
         if len(self._buffer) > self.maxsize:
-            buf: list[Packet | None] = [
+            buf: list[RTPPacket | None] = [
                 None for _ in range(self._buffer[0].sequence-self._last_seq-1)
             ]
             self._last_seq = self._buffer[0].sequence - 1
@@ -75,7 +74,7 @@ class SimpleJitterBuffer:
 
         return []
 
-    def flush(self, reset: bool=False) -> list[Packet | None]:
+    def flush(self, reset: bool=False) -> list[RTPPacket | None]:
         if reset:
             self.prefill = self._prefill
 
@@ -83,7 +82,7 @@ class SimpleJitterBuffer:
             return []
 
         seq = self._buffer[0].sequence
-        remaining: list[Packet | None] = []
+        remaining: list[RTPPacket | None] = []
 
         if self._last_seq + 1 != seq:
             assert self._last_seq + 1 < seq
