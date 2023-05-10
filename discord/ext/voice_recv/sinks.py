@@ -10,13 +10,14 @@ import logging
 
 from typing import TYPE_CHECKING
 
-from .opus import Decoder
-from .buffer import SimpleJitterBuffer
+from .opus import VoiceData
 
 import discord
 
+from discord.opus import Decoder as OpusDecoder
+
 if TYPE_CHECKING:
-    from typing import Callable, Optional, Any
+    from typing import Callable, Optional, Any, IO
 
     from .rtp import RTPPacket, RTCPPacket, FakePacket
     from .voice_client import VoiceRecvClient
@@ -34,7 +35,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     'AudioSink',
     'BasicSink',
-    # 'WaveSink',
+    'WaveSink',
     # 'PCMVolumeTransformerFilter',
     # 'ConditionalFilter',
     # 'TimedFilter',
@@ -106,69 +107,39 @@ class BasicSink(AudioSink):
         pass
 
 
+class WaveSink(AudioSink):
+    """Endpoint AudioSink that generates a wav file.
+    Best used in conjunction with a silence generating sink. (TBD)
+    """
+
+    CHANNELS = OpusDecoder.CHANNELS
+    SAMPLE_WIDTH = OpusDecoder.SAMPLE_SIZE//OpusDecoder.CHANNELS
+    SAMPLING_RATE = OpusDecoder.SAMPLING_RATE
+
+    def __init__(self, destination: str | IO[bytes]):
+        self._file = wave.open(destination, 'wb')
+        self._file.setnchannels(self.CHANNELS)
+        self._file.setsampwidth(self.SAMPLE_WIDTH)
+        self._file.setframerate(self.SAMPLING_RATE)
+
+    def wants_opus(self) -> bool:
+        return False
+
+    def write(self, user: Optional[User], data: VoiceData):
+        self._file.writeframes(data.pcm)
+
+    def cleanup(self):
+        try:
+            self._file.close()
+        except Exception:
+            log.info("WaveSink got error closing file on cleanup", exc_info=True)
+
+
 #############################################################################
 # OLD CODE BELOW
 #############################################################################
 
 
-# class JitterBufferSink(AudioSink):
-#     def __init__(self, dest, **kwargs):
-#         self.destination = dest
-#         self._buffer = SimpleJitterBuffer(**kwargs)
-#
-#     def wants_opus(self):
-#         return True
-#
-#     def write(self, packet):
-#         items = self._buffer.push(packet)
-#
-#         for item in items:
-#             self.destination.write(item)
-#
-#     def cleanup(self):
-#         pass
-#
-# class OpusDecoderSink(AudioSink):
-#     def __init__(self, dest):
-#         self.destination = dest
-#         self._decoder = Decoder()
-#
-#     def wants_opus(self):
-#         return True
-#
-#     def write(self, packet):
-#         self.destination.write(self._decoder.decode(packet.decrypted_data, fec=False))
-#
-#     def cleanup(self):
-#         pass
-#
-# class BundledOpusSink(AudioSink):
-#     def __init__(self, dest, **kwargs):
-#         self.destination = JitterBufferSink(OpusDecoderSink(dest), **kwargs)
-#
-#     def on_voice_packet(self, packet):
-#         self.destination.write(packet)
-#
-#
-# ###############################################################################
-#
-#
-# class WaveSink(AudioSink):
-#     def __init__(self, destination):
-#         self._file = wave.open(destination, 'wb')
-#         self._file.setnchannels(Decoder.CHANNELS)
-#         self._file.setsampwidth(Decoder.SAMPLE_SIZE//Decoder.CHANNELS)
-#         self._file.setframerate(Decoder.SAMPLING_RATE)
-#
-#     def write(self, data):
-#         self._file.writeframes(data.data)
-#
-#     def cleanup(self):
-#         try:
-#             self._file.close()
-#         except:
-#             pass
-#
 # class PCMVolumeTransformerFilter(AudioSink):
 #     def __init__(self, destination, volume=1.0):
 #         if not isinstance(destination, AudioSink):

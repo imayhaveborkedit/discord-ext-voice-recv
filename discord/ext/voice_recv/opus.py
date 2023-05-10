@@ -42,7 +42,7 @@ class VoiceData:
     ):
         self.packet = packet
         self.source = source
-        self.pcm = pcm
+        self.pcm: bytes = pcm if pcm else b''
 
     @property
     def opus(self) -> Optional[bytes]:
