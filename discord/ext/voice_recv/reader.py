@@ -34,14 +34,6 @@ __all__ = [
     'AudioReader'
 ]
 
-# rename 'data' to 'payload'? or 'opus'? something else?
-class VoiceData:
-    __slots__ = ('data', 'user', 'packet')
-
-    def __init__(self, data, user, packet):
-        self.data = data
-        self.user = user
-        self.packet = packet
 
 class _ReaderBase(threading.Thread):
     def __init__(self, sink: AudioSink, client: VoiceRecvClient, **kwargs):
@@ -164,10 +156,6 @@ class AudioReader(_ReaderBase):
         self.router.set_sink(sink)
         return sink
 
-    def _get_user(self, packet):
-        _, user_id = self.client._get_ssrc_mapping(ssrc=packet.ssrc)
-        return self.client.guild.get_member(user_id) if user_id else None
-
     def _do_run(self):
         while not self._end.is_set():
             if not self.connected.is_set():
@@ -235,7 +223,7 @@ class AudioReader(_ReaderBase):
 
             else:
                 if packet.ssrc not in self.client._ssrc_to_id:
-                    log.debug("Received packet for unknown ssrc %s", packet.ssrc)
+                    log.info("Received packet for unknown ssrc %s", packet.ssrc)
 
             finally:
                 if not packet:

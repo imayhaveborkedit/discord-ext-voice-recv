@@ -156,13 +156,14 @@ class PacketDecoder(threading.Thread):
     def flush(self):
         rest = self._buffer.flush()
         self._batch.extend(rest)
-        ...
+        # was there something else i needed to do?
 
     def set_sink(self, sink: AudioSink):
         with self._lock:
             self.sink = sink
-            if not sink.wants_opus():
-                ... # TODO: set (or reset?) decoder
+            # do i need to (or should i) reset the decoder?
+            if sink.wants_opus() and self._decoder is None:
+                self._decoder = Decoder()
 
     def _make_fakepacket(self) -> FakePacket:
         ts = self._last_ts + Decoder.SAMPLES_PER_FRAME
