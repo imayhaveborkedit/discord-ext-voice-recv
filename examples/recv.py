@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import discord
 from discord.ext import commands, voice_recv
 
@@ -11,8 +13,8 @@ class Testing(commands.Cog):
 
     @commands.command()
     async def test(self, ctx):
-        def callback(member, packet):
-            print(member, packet)
+        def callback(user, data: voice_recv.VoiceData):
+            print(f"Got packet from {user}")
 
             ## voice power level, how loud the user is speaking
             # ext_data = packet.extension_data.get(voice_recv.ExtensionID.audio_power)
@@ -26,20 +28,19 @@ class Testing(commands.Cog):
 
     @commands.command()
     async def stop(self, ctx):
-        ctx.voice_client.stop_listening()
         await ctx.voice_client.disconnect()
 
     @commands.command()
     async def die(self, ctx):
-        await self.stop(ctx)
+        ctx.voice_client.stop()
         await ctx.bot.close()
-
 
 @bot.event
 async def on_ready():
     print('Logged in as {0.id}/{0}'.format(bot.user))
     print('------')
 
+async def setup_hook():
+    await bot.add_cog(Testing(bot))
 
-bot.add_cog(Testing(bot))
-bot.run(token)
+bot.run("token")
