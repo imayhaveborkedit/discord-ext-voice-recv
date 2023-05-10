@@ -87,14 +87,14 @@ class BasicSink(AudioSink):
         event: BasicSinkWriteCB,
         *,
         rtcp_event: Optional[BasicSinkWriteRTCPCB]=None,
-        opus: bool=True
+        decode: bool=True
     ):
         self.cb = event
         self.cb_rtcp = rtcp_event
-        self.opus = opus
+        self.decode = decode
 
     def wants_opus(self) -> bool:
-        return self.opus
+        return not self.decode
 
     def write(self, user: Optional[User], data: VoiceData):
         self.cb(user, data)
