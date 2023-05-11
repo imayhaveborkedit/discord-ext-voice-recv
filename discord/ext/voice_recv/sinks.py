@@ -195,6 +195,17 @@ class ConditionalFilter(AudioSink):
         del self.predicate
 
 
+class UserFilter(ConditionalFilter):
+    """A convenience class for a User based ConditionalFilter."""
+
+    def __init__(self, destination: AudioSink, user: User):
+        super().__init__(destination, self._predicate)
+        self.user = user
+
+    def _predicate(self, user: Optional[User], data: VoiceData) -> bool:
+        return user == self.user
+
+
 #############################################################################
 # OLD CODE BELOW
 #############################################################################
@@ -228,10 +239,3 @@ class ConditionalFilter(AudioSink):
 #     def get_time(self):
 #         return time.time()
 #
-# class UserFilter(ConditionalFilter):
-#     def __init__(self, destination, user):
-#         super().__init__(destination, self._predicate)
-#         self.user = user
-#
-#     def _predicate(self, data):
-#         return data.user == self.user
