@@ -135,34 +135,50 @@ class WaveSink(AudioSink):
             log.info("WaveSink got error closing file on cleanup", exc_info=True)
 
 
+class PCMVolumeTransformer(AudioSink):
+    """AudioSink used to change the volume of PCM data, just like
+    :class:`discord.PCMVolumeTransformer`.
+    """
+
+    def __init__(self, destination: AudioSink, volume: float=1.0):
+        if not isinstance(destination, AudioSink):
+            raise TypeError(f'expected AudioSink not {type(destination).__name__}')
+
+        if destination.wants_opus():
+            raise VoiceRecvException('AudioSink must not request Opus encoding.')
+
+        self.destination = destination
+        self.volume = volume
+
+    def wants_opus(self) -> bool:
+        return False
+
+    @property
+    def volume(self) -> float:
+        """Retrieves or sets the volume as a floating point percentage (e.g. 1.0 for 100%)."""
+        return self._volume
+
+    @volume.setter
+    def volume(self, value: float): # TODO: type range
+        self._volume = max(value, 0.0)
+
+    def write(self, user: Optional[User], data: VoiceData):
+        data.pcm = audioop.mul(data.pcm, 2, min(self._volume, 2.0))
+        self.destination.write(user, data)
+
+    def write_rtcp(self, packet: RTCPPacket):
+        self.destination.write_rtcp(packet)
+
+    def cleanup(self):
+        pass
+    def cleanup(self):
+        pass
+
+
 #############################################################################
 # OLD CODE BELOW
 #############################################################################
 
-
-# class PCMVolumeTransformerFilter(AudioSink):
-#     def __init__(self, destination, volume=1.0):
-#         if not isinstance(destination, AudioSink):
-#             raise TypeError('expected AudioSink not {0.__class__.__name__}.'.format(destination))
-#
-#         if destination.wants_opus:
-#             raise VoiceRecvException('AudioSink must not request Opus encoding.')
-#
-#         self.destination = destination
-#         self.volume = volume
-#
-#     @property
-#     def volume(self):
-#         """Retrieves or sets the volume as a floating point percentage (e.g. 1.0 for 100%)."""
-#         return self._volume
-#
-#     @volume.setter
-#     def volume(self, value):
-#         self._volume = max(value, 0.0)
-#
-#     def write(self, data):
-#         data = audioop.mul(data.data, 2, min(self._volume, 2.0))
-#         self.destination.write(None, data) # TODO: unfuck # type: ignore
 #
 # # I need some sort of filter sink with a predicate or something
 # # Which means I need to sort out the write() signature issue
