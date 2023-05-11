@@ -235,16 +235,3 @@ class TimedFilter(ConditionalFilter):
         Can be overridden.
         """
         return time.time()
-
-
-#############################################################################
-# OLD CODE BELOW
-#############################################################################
-
-#
-# # I need some sort of filter sink with a predicate or something
-# # Which means I need to sort out the write() signature issue
-# # Also need something to indicate a sink is "done", probably
-# # something like raising an exception and handling that in the write loop
-# # Maybe should rename some of these to Filter instead of Sink
-#
