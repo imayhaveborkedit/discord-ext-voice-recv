@@ -225,16 +225,16 @@ class AudioReader(_ReaderBase):
 
             else:
                 if packet.ssrc not in self.client._ssrc_to_id:
-                    log.info("Received packet for unknown ssrc %s", packet.ssrc)
+                    log.info("Received packet for unknown ssrc %s:\n%s", packet.ssrc, packet)
 
             finally:
                 if not packet:
                     continue
 
+            # I could combine these in a function in the router but this is faster
             if rtcp:
                 self.router.feed_rtcp(packet) # type: ignore
             else:
-                # TODO: ah shit i gotta deal with the race between ws op 5
                 self.router.feed_rtp(packet) # type: ignore
 
     def is_listening(self):
@@ -246,14 +246,20 @@ class AudioReader(_ReaderBase):
     def run(self):
         try:
             self._do_run()
-        except socket.error as exc:
-            self._current_error = exc
-            self.stop()
-        except Exception as exc:
-            traceback.print_exc()
-            self._current_error = exc
-            self.stop()
+        except socket.error as err:
+            self._current_error = err
+
+        except Exception as err:
+            log.exception("Error in %s", self)
+            self._current_error = err
+
         finally:
+            self.stop()
+            try:
+                self.router.stop()
+            except Exception:
+                log.exception("Error stopping router in %s", self)
+
             self._call_after()
 
     def _call_after(self):

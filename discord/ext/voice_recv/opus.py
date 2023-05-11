@@ -57,7 +57,9 @@ class PacketRouter:
         self.decoders: Dict[int, PacketDecoder] = {}
 
         self._rtcp_buffer = queue.Queue()
+        self._lock = threading.RLock()
         self._end_writer = threading.Event()
+
         self._rtcp_writer = threading.Thread(
             target=self._rtcp_loop,
             daemon=True,
@@ -69,6 +71,7 @@ class PacketRouter:
         decoder = self.decoders.get(ssrc, None)
 
         if decoder is None:
+            log.debug("Creating decoder for ssrc %s", ssrc)
             decoder = self.decoders.setdefault(ssrc, PacketDecoder(self.sink, ssrc))
 
         return decoder
@@ -87,24 +90,36 @@ class PacketRouter:
             except queue.Empty:
                 continue
             else:
-                self.sink.write_rtcp(rtcp_packet)
-
-    def destroy_decoder(self, ssrc: int):
-        decoder = self.decoders.pop(ssrc, None)
-        if decoder:
-            decoder.stop()
-            decoder.flush()
+                with self._lock:
+                    self.sink.write_rtcp(rtcp_packet)
 
     def set_sink(self, sink: AudioSink):
-        # I probably need to lock this dont I
-        for decoder in self.decoders.values():
-            decoder.set_sink(sink)
+        with self._lock:
+            self.sink = sink
+
+            for decoder in self.decoders.values():
+                decoder.set_sink(sink)
+
+    def notify(self, ssrc: int, user_id: int):
+        decoder = self.decoders.get(ssrc, None)
+
+        if decoder is not None:
+            decoder.notify(user_id)
+
+    def destroy_decoder(self, ssrc: int):
+        with self._lock:
+            decoder = self.decoders.pop(ssrc, None)
+
+            if decoder:
+                decoder.flush()
+                decoder.stop()
 
     def stop(self):
-        self._end_writer.set()
+        with self._lock:
+            self._end_writer.set()
 
-        for ssrc in self.decoders.keys():
-            self.destroy_decoder(ssrc)
+            for ssrc in self.decoders.keys():
+                self.destroy_decoder(ssrc)
 
 
 class PacketDecoder(threading.Thread):
@@ -150,6 +165,10 @@ class PacketDecoder(threading.Thread):
             log.warning("New packets after thread end in %s")
             return
 
+        # TODO: somewhere around this point i need to do the thing where i
+        #       check to see if there are old stale packets to flush from the
+        #       remote buffer, like in the old version
+
         next_batch = self._buffer.push(packet)
         self._batch.extend(next_batch)
 
@@ -163,7 +182,11 @@ class PacketDecoder(threading.Thread):
             self.sink = sink
             # do i need to (or should i) reset the decoder?
             if sink.wants_opus() and self._decoder is None:
+                log.debug("Resetting Decoder for %s", self)
                 self._decoder = Decoder()
+
+    def notify(self, user_id: int):
+        self._cached_id = user_id
 
     def _make_fakepacket(self) -> FakePacket:
         ts = self._last_ts + Decoder.SAMPLES_PER_FRAME

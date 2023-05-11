@@ -15,7 +15,7 @@ from .reader import AudioReader
 from .sinks import AudioSink
 
 if TYPE_CHECKING:
-    from typing import Optional, Dict
+    from typing import Optional, Dict, Tuple
 
 from pprint import pformat
 
@@ -76,12 +76,12 @@ class VoiceRecvClient(discord.VoiceClient):
         super().cleanup()
         self.stop()
 
-    # TODO: copy over new functions
-    # add/remove/get ssrc
-
     def _add_ssrc(self, user_id: int, ssrc: int):
         self._ssrc_to_id[ssrc] = user_id
         self._id_to_ssrc[user_id] = ssrc
+
+        if self._reader:
+            self._reader.router.notify(ssrc, user_id)
 
     def _remove_ssrc(self, *, user_id: int):
         ssrc = self._id_to_ssrc.pop(user_id, None)
@@ -89,7 +89,7 @@ class VoiceRecvClient(discord.VoiceClient):
             self._ssrc_to_id.pop(ssrc, None)
 
     # This function has a weird sig because of old code refactors, will fix later
-    def _get_ssrc_mapping(self, *, ssrc: int):
+    def _get_ssrc_mapping(self, *, ssrc: int) -> Tuple[int, Optional[int]]:
         uid = self._ssrc_to_id.get(ssrc)
         return ssrc, uid
 
@@ -130,7 +130,7 @@ class VoiceRecvClient(discord.VoiceClient):
         self.stop_listening()
 
     @property
-    def sink(self) -> AudioSink | None:
+    def sink(self) -> Optional[AudioSink]:
         return self._reader.sink if self._reader else None
 
     @sink.setter

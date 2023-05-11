@@ -18,14 +18,15 @@
 # VOICE_BACKEND_VERSION = 16
 # CHANNEL_OPTIONS_UPDATE = 17
 
+from __future__ import annotations
+
 import logging
 
 import asyncio
 from typing import TYPE_CHECKING
 
-from discord.gateway import DiscordVoiceWebSocket
-
 if TYPE_CHECKING:
+    from discord.gateway import DiscordVoiceWebSocket
     from .voice_client import VoiceRecvClient
 
 log = logging.getLogger(__name__)
