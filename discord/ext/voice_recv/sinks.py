@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
     BasicSinkWriteCB = Callable[[Optional[User], VoiceData], Any]
     BasicSinkWriteRTCPCB = Callable[[RTCPPacket], Any]
+    ConditionalFilterFn = Callable[[Optional[User], VoiceData], bool]
 
 
 log = logging.getLogger(__name__)
@@ -171,8 +172,27 @@ class PCMVolumeTransformer(AudioSink):
 
     def cleanup(self):
         pass
+
+
+class ConditionalFilter(AudioSink):
+    """AudioSink for filtering packets based on an arbitrary predicate function."""
+
+    def __init__(self, destination: AudioSink, predicate: ConditionalFilterFn):
+        self.destination = destination
+        self.predicate = predicate
+
+    def wants_opus(self) -> bool:
+        return self.destination.wants_opus()
+
+    def write(self, user: Optional[User], data: VoiceData):
+        if self.predicate(user, data):
+            self.destination.write(user, data)
+
+    def write_rtcp(self, packet: RTCPPacket):
+        self.destination.write_rtcp(packet)
+
     def cleanup(self):
-        pass
+        del self.predicate
 
 
 #############################################################################
@@ -186,14 +206,6 @@ class PCMVolumeTransformer(AudioSink):
 # # something like raising an exception and handling that in the write loop
 # # Maybe should rename some of these to Filter instead of Sink
 #
-# class ConditionalFilter(AudioSink):
-#     def __init__(self, destination, predicate):
-#         self.destination = destination
-#         self.predicate = predicate
-#
-#     def write(self, data):
-#         if self.predicate(data):
-#             self.destination.write(data)
 #
 # class TimedFilter(ConditionalFilter):
 #     def __init__(self, destination, duration, *, start_on_init=False):
