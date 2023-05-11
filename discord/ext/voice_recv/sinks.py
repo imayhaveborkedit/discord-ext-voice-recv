@@ -206,6 +206,37 @@ class UserFilter(ConditionalFilter):
         return user == self.user
 
 
+class TimedFilter(ConditionalFilter):
+    def __init__(self,
+        destination: AudioSink,
+        duration: int | float,
+        *,
+        start_on_init: bool=False
+    ):
+        super().__init__(destination, self.predicate)
+        self.duration = duration
+
+        if start_on_init:
+            self.start_time = self.get_time()
+        else:
+            self.start_time = None
+            self.write = self._write_once
+
+    def _write_once(self, user: Optional[User], data: VoiceData):
+        self.start_time = self.get_time()
+        super().write(user, data)
+        self.write = super().write
+
+    def predicate(self, user: Optional[User], data: VoiceData) -> bool:
+        return self.start_time is not None and self.get_time() - self.start_time < self.duration
+
+    def get_time(self) -> int | float:
+        """Function to generate a timestamp.  Defaults to `time.time()`.
+        Can be overridden.
+        """
+        return time.time()
+
+
 #############################################################################
 # OLD CODE BELOW
 #############################################################################
@@ -216,26 +247,4 @@ class UserFilter(ConditionalFilter):
 # # Also need something to indicate a sink is "done", probably
 # # something like raising an exception and handling that in the write loop
 # # Maybe should rename some of these to Filter instead of Sink
-#
-#
-# class TimedFilter(ConditionalFilter):
-#     def __init__(self, destination, duration, *, start_on_init=False):
-#         super().__init__(destination, self._predicate)
-#         self.duration = duration
-#         if start_on_init:
-#             self.start_time = self.get_time()
-#         else:
-#             self.start_time = None
-#             self.write = self._write_once
-#
-#     def _write_once(self, data):
-#         self.start_time = self.get_time()
-#         super().write(data)
-#         self.write = super().write
-#
-#     def _predicate(self, data):
-#         return self.start_time and self.get_time() - self.start_time < self.duration
-#
-#     def get_time(self):
-#         return time.time()
 #
