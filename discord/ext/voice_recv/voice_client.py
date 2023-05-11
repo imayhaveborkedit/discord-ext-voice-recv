@@ -8,9 +8,14 @@ import threading
 import discord
 from discord.gateway import DiscordVoiceWebSocket
 
+from typing import TYPE_CHECKING
+
 from .gateway import hook
 from .reader import AudioReader
 from .sinks import AudioSink
+
+if TYPE_CHECKING:
+    from typing import Optional, Dict
 
 from pprint import pformat
 
@@ -25,9 +30,9 @@ class VoiceRecvClient(discord.VoiceClient):
         super().__init__(client, channel)
 
         self._connecting = threading.Condition()
-        self._reader: AudioReader | None = None
-        self._ssrc_to_id = {}
-        self._id_to_ssrc = {}
+        self._reader: Optional[AudioReader] = None
+        self._ssrc_to_id: Dict[int, int] = {}
+        self._id_to_ssrc: Dict[int, int] = {}
 
     async def connect_websocket(self):
         ws = await DiscordVoiceWebSocket.from_client(self, hook=hook)
@@ -66,7 +71,6 @@ class VoiceRecvClient(discord.VoiceClient):
     # async def on_voice_server_update(self, data):
     #     await super().on_voice_server_update(data)
     #     ...
-
 
     def cleanup(self):
         super().cleanup()

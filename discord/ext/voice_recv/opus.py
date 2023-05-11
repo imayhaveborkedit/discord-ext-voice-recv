@@ -17,7 +17,7 @@ import discord
 from discord.opus import Decoder
 
 if TYPE_CHECKING:
-    from typing import Deque, Optional, Tuple
+    from typing import Deque, Optional, Tuple, Dict
     from .sinks import AudioSink
 
     AudioPacket = RTPPacket | FakePacket
@@ -54,7 +54,7 @@ class PacketRouter:
 
     def __init__(self, sink: AudioSink):
         self.sink = sink
-        self.decoders = {}
+        self.decoders: Dict[int, PacketDecoder] = {}
 
         self._rtcp_buffer = queue.Queue()
         self._end_writer = threading.Event()
