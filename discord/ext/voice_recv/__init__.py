@@ -6,6 +6,10 @@ from .sinks import *
 from .opus import *
 from .rtp import *
 
+from . import (
+    rtp as rtp,
+)
+
 __title__ = 'discord.ext.voice_recv'
 __author__ = 'Imayhaveborkedit'
 __license__ = 'MIT'
