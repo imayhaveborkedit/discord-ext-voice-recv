@@ -36,7 +36,11 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
     data: dict = msg.get('d') # type: ignore
     vc: VoiceRecvClient = self._connection # type: ignore
 
-    if op == self.SESSION_DESCRIPTION:
+    if op == self.READY:
+        self.ssrc: int = data['ssrc'] # type: ignore
+        vc._add_ssrc(vc.client.user.id, data['ssrc']) # type: ignore
+
+    elif op == self.SESSION_DESCRIPTION:
         # log.info("Doing voice hacks")
         # await _do_hacks(self)
 

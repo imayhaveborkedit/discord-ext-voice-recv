@@ -201,13 +201,13 @@ class AudioReader(_ReaderBase):
             try:
                 if not rtp.is_rtcp(raw_data):
                     packet = rtp.decode(raw_data)
-                    assert isinstance(packet, RTPPacket)
+                    assert isinstance(packet, rtp.RTPPacket)
 
                     packet.decrypted_data = self.decrypt_rtp(packet)
                 else:
                     rtcp = True
                     packet = rtp.decode(self.decrypt_rtcp(raw_data))
-                    assert isinstance(packet, RTCPPacket)
+                    assert isinstance(packet, rtp.RTCPPacket)
 
                     if not isinstance(packet, rtp.ReceiverReportPacket):
                         log.warning(
