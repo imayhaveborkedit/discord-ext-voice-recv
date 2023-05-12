@@ -3,11 +3,41 @@
 from __future__ import annotations
 
 import bisect
+import threading
+
+from collections import deque
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from typing import Optional, List, Deque, overload, Literal
     from .rtp import RTPPacket
+
+__all__ = [
+    'SimpleJitterBuffer',
+    'NoPacket'
+]
+
+
+class NoPacket:
+    __slots__ = ('sequence',)
+
+    def __init__(self, seq: int):
+        self.sequence = seq
+        # TODO: timestamp?
+
+    def __bool__(self):
+        return False
+
+    def __lt__(self, other):
+        return self.sequence < other.sequence
+
+    def __eq__(self, other):
+        return self.sequence == other.sequence
+
+
+if TYPE_CHECKING:
+    SomePacket = RTPPacket | NoPacket
 
 
 class SimpleJitterBuffer:
@@ -96,3 +126,100 @@ class SimpleJitterBuffer:
             seq = packet.sequence + 1
 
         return remaining
+
+
+class NewSimpleJitterBuffer:
+    """Push item in, returns as many contiguous items as possible"""
+
+    def __init__(self, maxsize: int=10, *, prefsize: int=1, prefill: int=1):
+        if maxsize < 1:
+            raise ValueError(f'maxsize ({maxsize}) must be greater than 0')
+
+        if not 0 <= prefsize <= maxsize:
+            raise ValueError(f'prefsize must be between 0 and maxsize ({maxsize})')
+
+        self.maxsize = maxsize
+        self.prefsize = prefsize
+        self.prefill = prefill
+        self._prefill = prefill # original prefill
+        self._last_seq: int = 0 # the sequence of the last packet popped from the buffer
+        self._has_item = threading.Event()
+        self._buffer: Deque[SomePacket] = deque(maxlen=maxsize)
+        # I sure hope I dont need to add a lock to this
+
+    def __len__(self):
+        return len(self._buffer)
+
+    def _get_ready_packet(self) -> SomePacket | None:
+        return self._buffer[0] if len(self._buffer) > self.prefsize else None
+
+    def _pop_ready_packet(self) -> SomePacket | None:
+        return self._buffer.popleft() if len(self._buffer) > self.prefsize else None
+
+    def _update_has_item(self):
+        prefilled = self.prefill == 0
+        packet_ready = len(self._buffer) > self.prefsize
+
+        if not prefilled or not packet_ready:
+            self._has_item.clear()
+            return
+
+        sequential = self._last_seq + 1 == self._buffer[0].sequence
+        positive_seq = self._last_seq > 0
+
+        # We have the next packet ready OR we havent sent a packet out yet
+        if (sequential and positive_seq) or not positive_seq:
+            self._has_item.set()
+        else:
+            self._has_item.clear()
+
+    def peek(self, *, all: bool=False) -> SomePacket | None:
+        if not self._buffer:
+            return None
+
+        if all:
+            return self._buffer[0]
+        else:
+            return self._get_ready_packet()
+
+    @overload
+    def take(self, *, block: Literal[True]) -> SomePacket:
+        ...
+
+    @overload
+    def take(self, *, block: Literal[False]) -> SomePacket | None:
+        ...
+
+    def take(self, *, block: bool=False) -> SomePacket | None:
+        if block:
+            self._has_item.wait()
+
+        if self.prefill > 0:
+            return None
+
+        packet = self._pop_ready_packet()
+        if packet is not None:
+            self._last_seq = packet.sequence
+
+        self._update_has_item()
+        return packet
+
+    def push(self, item: RTPPacket):
+        bisect.insort(self._buffer, item)
+
+        if self.prefill > 0:
+            self.prefill -= 1
+
+        self._update_has_item()
+
+    def flush(self, *, reset: bool=False) -> list[SomePacket]:
+        packets = list(self._buffer)
+        self._buffer.clear()
+        self._last_seq = packets[-1].sequence
+
+        if reset:
+            self.prefill = self._prefill
+            self._last_seq = 0
+            self._has_item.clear()
+
+        return packets
