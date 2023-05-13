@@ -75,7 +75,7 @@ class _PacketCmpMixin:
 
     def __eq__(self, other):
         if self.ssrc != other.ssrc:
-            raise TypeError("packet ssrc mismatch (%s, %s)" % (self.ssrc, other.ssrc))
+            return False
         return self.timestamp == other.timestamp
 
     def is_silence(self) -> bool:
@@ -98,17 +98,17 @@ class SilencePacket(_PacketCmpMixin):
         return True
 
 class FakePacket(_PacketCmpMixin):
-    __slots__ = ('ssrc', 'timestamp', 'sequence')
+    __slots__ = ('ssrc', 'sequence', 'timestamp')
     decrypted_data: bytes = b''
     extension_data: dict = {}
 
-    def __init__(self, ssrc: int, timestamp: int, sequence: int):
+    def __init__(self, ssrc: int, sequence: int, timestamp: int):
         self.ssrc = ssrc
-        self.timestamp = sequence
-        self.sequence = timestamp
+        self.sequence = sequence
+        self.timestamp = timestamp
 
     def __repr__(self):
-        return '<FakePacket ssrc={0.ssrc}, timestamp={0.timestamp}, sequence={0.sequence}>'.format(self)
+        return '<FakePacket ssrc={0.ssrc}, sequence={0.sequence}, timestamp={0.timestamp}>'.format(self)
 
 # Consider adding silence attribute to differentiate (to skip isinstance)
 

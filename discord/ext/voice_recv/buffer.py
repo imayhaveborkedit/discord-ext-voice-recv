@@ -7,10 +7,10 @@ import threading
 
 from collections import deque
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
-    from typing import Optional, List, Deque, overload, Literal
+    from typing import Optional, List, Deque, Literal
     from .rtp import RTPPacket
 
 __all__ = [
