@@ -255,12 +255,18 @@ class AudioReader(_ReaderBase):
 
         finally:
             self.stop()
+
             try:
                 self.router.stop()
             except Exception:
                 log.exception("Error stopping router in %s", self)
 
             self._call_after()
+
+            try:
+                self.sink.cleanup()
+            except Exception:
+                log.exception("Error calling sink cleanup() in %s", self)
 
     def _call_after(self):
          if self.after is not None:
