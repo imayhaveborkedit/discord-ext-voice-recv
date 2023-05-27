@@ -17,7 +17,7 @@ import discord
 from discord.opus import Decoder as OpusDecoder
 
 if TYPE_CHECKING:
-    from typing import Callable, Optional, Any, IO
+    from typing import Callable, Optional, Any, IO, Sequence
 
     from .rtp import RTPPacket, RTCPPacket, FakePacket
     from .voice_client import VoiceRecvClient
@@ -35,6 +35,7 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     'AudioSink',
+    'MultiAudioSink',
     'BasicSink',
     'WaveSink',
     # 'PCMVolumeTransformerFilter',
@@ -50,16 +51,25 @@ class VoiceRecvException(discord.DiscordException):
     def __init__(self, message: str):
         self.message = message
 
-class AudioSink(metaclass=abc.ABCMeta):
-    _voice_client: Optional[VoiceRecvClient] = None
 
-    def __del__(self):
-        self.cleanup()
+class BaseSink(metaclass=abc.ABCMeta):
+    _voice_client: Optional[VoiceRecvClient] = None
+    _parent: Optional[AudioSink] = None
 
     @property
-    def voice_client(self) -> VoiceRecvClient:
-        assert self._voice_client
-        return self._voice_client
+    @abc.abstractmethod
+    def parent(self) -> Optional[AudioSink]:
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def child(self) -> Optional[AudioSink]:
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def children(self) -> Sequence[AudioSink]:
+        raise NotImplementedError
 
     # TODO: handling opus vs pcm is not strictly mutually exclusive
     #       a sink could handle both but idk about that pattern
@@ -82,6 +92,54 @@ class AudioSink(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
+class AudioSink(BaseSink):
+    def __init__(self, destination: Optional[AudioSink]=None, /):
+        self._child = destination
+
+        if destination is not None:
+            destination._parent = self
+
+    def __del__(self):
+        self.cleanup()
+
+    @property
+    def voice_client(self) -> VoiceRecvClient:
+        if self.parent is not None:
+            return self.parent.voice_client
+        else:
+            assert self._voice_client
+            return self._voice_client
+
+    @property
+    def parent(self) -> Optional[AudioSink]:
+        return self._parent
+
+    @property
+    def child(self) -> Optional[AudioSink]:
+        return self._child
+
+    @property
+    def children(self) -> Sequence[AudioSink]:
+        return [self._child] if self._child else []
+
+
+class MultiAudioSink(AudioSink):
+    def __init__(self, destinations: Sequence[AudioSink], /):
+        self._children = tuple(destinations)
+
+        if destinations is not None:
+            for dest in destinations:
+                dest._parent = self
+
+    @property
+    def child(self) -> Optional[AudioSink]:
+        return self._children[0] if self._children else None
+
+    @property
+    def children(self) -> Sequence[AudioSink]:
+        return self._children
+
+
 class BasicSink(AudioSink):
     """Simple callback based sink."""
 
@@ -91,6 +149,8 @@ class BasicSink(AudioSink):
         rtcp_event: Optional[BasicSinkWriteRTCPCB]=None,
         decode: bool=True
     ):
+        super().__init__()
+
         self.cb = event
         self.cb_rtcp = rtcp_event
         self.decode = decode
@@ -118,6 +178,8 @@ class WaveSink(AudioSink):
     SAMPLING_RATE = OpusDecoder.SAMPLING_RATE
 
     def __init__(self, destination: str | IO[bytes]):
+        super().__init__()
+
         self._file = wave.open(destination, 'wb')
         self._file.setnchannels(self.CHANNELS)
         self._file.setsampwidth(self.SAMPLE_WIDTH)
@@ -147,6 +209,8 @@ class PCMVolumeTransformer(AudioSink):
 
         if destination.wants_opus():
             raise VoiceRecvException('AudioSink must not request Opus encoding.')
+
+        super().__init__(destination)
 
         self.destination = destination
         self.volume = volume
@@ -178,6 +242,8 @@ class ConditionalFilter(AudioSink):
     """AudioSink for filtering packets based on an arbitrary predicate function."""
 
     def __init__(self, destination: AudioSink, predicate: ConditionalFilterFn):
+        super().__init__(destination)
+
         self.destination = destination
         self.predicate = predicate
 
