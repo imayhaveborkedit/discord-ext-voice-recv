@@ -297,7 +297,7 @@ class TimedFilter(ConditionalFilter):
         return self.start_time is not None and self.get_time() - self.start_time < self.duration
 
     def get_time(self) -> int | float:
-        """Function to generate a timestamp.  Defaults to `time.time()`.
+        """Function to generate a timestamp.  Defaults to `time.perf_counter()`.
         Can be overridden.
         """
-        return time.time()
+        return time.perf_counter()
