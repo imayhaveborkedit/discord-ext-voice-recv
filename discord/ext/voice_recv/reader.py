@@ -224,8 +224,12 @@ class AudioReader(_ReaderBase):
                 traceback.print_exc()
 
             else:
-                if packet.ssrc not in self.client._ssrc_to_id:
-                    log.info("Received packet for unknown ssrc %s:\n%s", packet.ssrc, packet)
+                if not rtcp and packet.ssrc not in self.client._ssrc_to_id:
+                    if packet.is_silence():
+                        log.debug("Skipping silence packet for unknown ssrc %s", packet.ssrc)
+                        continue
+                    else:
+                        log.info("Received packet for unknown ssrc %s:\n%s", packet.ssrc, packet)
 
             finally:
                 if not packet:
