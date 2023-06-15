@@ -110,6 +110,9 @@ class FakePacket(_PacketCmpMixin):
     def __repr__(self):
         return '<FakePacket ssrc={0.ssrc}, sequence={0.sequence}, timestamp={0.timestamp}>'.format(self)
 
+    def __bool__(self) -> Literal[False]:
+        return False
+
 # Consider adding silence attribute to differentiate (to skip isinstance)
 
 class RTPPacket(_PacketCmpMixin):
@@ -203,8 +206,8 @@ class RTPPacket(_PacketCmpMixin):
                'sequence={0.sequence}, ' \
                'timestamp={0.timestamp}, ' \
                'size={1}, ' \
-               'ext={0.extended}' \
-               '>'.format(self, len(self.data))
+               'ext={2}' \
+               '>'.format(self, len(self.data), set(self.extension_data))
 
 # http://www.rfcreader.com/#rfc3550_line855
 class RTCPPacket(_PacketCmpMixin):

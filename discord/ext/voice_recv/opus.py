@@ -10,7 +10,7 @@ import threading
 from collections import deque
 from typing import TYPE_CHECKING
 
-from .buffer import SimpleJitterBuffer
+from .buffer import HeapJitterBuffer as JitterBuffer
 from .rtp import *
 
 import discord
@@ -21,7 +21,8 @@ if TYPE_CHECKING:
     from .sinks import AudioSink
 
     AudioPacket = RTPPacket | FakePacket
-    Packet = AudioPacket | SilencePacket
+    # Packet = AudioPacket | SilencePacket
+    Packet = AudioPacket
     User = discord.User | discord.Member
 
 log = logging.getLogger(__name__)
@@ -118,7 +119,7 @@ class PacketRouter:
         with self._lock:
             self._end_writer.set()
 
-            for ssrc in self.decoders.keys():
+            for ssrc in list(self.decoders.keys()):
                 self.destroy_decoder(ssrc)
 
 
@@ -135,8 +136,7 @@ class PacketDecoder(threading.Thread):
         self.ssrc = ssrc
 
         self._decoder = None if sink.wants_opus() else Decoder()
-        self._buffer = SimpleJitterBuffer()
-        self._batch: Deque[RTPPacket | None] = deque()
+        self._buffer = JitterBuffer()
         self._cached_id: Optional[int] = None
 
         self._last_ts: int = 0
@@ -169,13 +169,11 @@ class PacketDecoder(threading.Thread):
         #       check to see if there are old stale packets to flush from the
         #       remote buffer, like in the old version
 
-        next_batch = self._buffer.push(packet)
-        self._batch.extend(next_batch)
+        self._buffer.push(packet)
 
     def flush(self):
         rest = self._buffer.flush()
-        self._batch.extend(rest)
-        # was there something else i needed to do?
+        # TODO: do stuff with the rest
 
     def set_sink(self, sink: AudioSink):
         with self._lock:
@@ -188,52 +186,59 @@ class PacketDecoder(threading.Thread):
     def notify(self, user_id: int):
         self._cached_id = user_id
 
-    def _make_fakepacket(self) -> FakePacket:
-        ts = self._last_ts + Decoder.SAMPLES_PER_FRAME
-        seq = self._last_seq + 1
-        return FakePacket(self.ssrc, ts, seq)
+    def _get_next_packet(self, timeout: float=0.1) -> Packet | None:
+        packet = self._buffer.pop(timeout=timeout)
 
-    def _handle_decode(self, packet: RTPPacket | None) -> Tuple[Packet, bytes]:
+        if packet is None:
+            return
+
+        elif not packet:
+            packet = self._make_fakepacket()
+
+        return packet
+
+    def _make_fakepacket(self) -> FakePacket:
+        seq = self._last_seq + 1
+        ts = self._last_ts + Decoder.SAMPLES_PER_FRAME
+        return FakePacket(self.ssrc, seq, ts)
+
+    def _handle_decode(self, packet: Packet) -> Tuple[Packet, bytes]:
         assert self._decoder is not None
 
         # Decode as per usual
-        if packet is not None:
+        if packet:
             pcm = self._decoder.decode(packet.decrypted_data, fec=False)
             return packet, pcm
 
-        # None packet, need to check next one to use fec
-        elif self._batch and self._batch[0] is not None:
-            # TODO: This will fail if we are caught up on the jitter buffer.
-            #       There will need to be an option somewhere to maintain a
-            #       size 1 buffer to use fec or to just not use fec (current)
+        # Fake packet, need to check next one to use fec
+        next_packet = self._buffer.peek_next()
 
-            nextdata = self._batch[0].decrypted_data
+        if next_packet is not None:
+            nextdata = next_packet.decrypted_data
             assert nextdata is not None
 
+            log.debug(
+                "Generating fec packet: fake=%s, fec=%s",
+                packet.sequence, next_packet.sequence
+            )
             pcm = self._decoder.decode(nextdata, fec=True)
 
         # Need to drop a packet
         else:
             pcm = self._decoder.decode(None, fec=False)
 
-        fakepacket = self._make_fakepacket()
-        return fakepacket, pcm
+        return packet, pcm
 
     def _do_run(self):
         while not self._end_thread.is_set():
-            if self._batch:
-                packet = self._batch.popleft()
-            else:
-                # TODO: use an event or something
-                time.sleep(0.01)
+            packet = self._get_next_packet()
+
+            if packet is None:
                 continue
 
             pcm = None
             if not self.sink.wants_opus():
                 packet, pcm = self._handle_decode(packet)
-
-            elif packet is None:
-                packet = self._make_fakepacket()
 
             member = self._get_cached_member()
 
@@ -245,6 +250,8 @@ class PacketDecoder(threading.Thread):
 
             with self._lock:
                 self.sink.write(member, data)
+                self._last_seq = packet.sequence
+                self._last_ts = packet.timestamp
 
     def run(self):
         try:
