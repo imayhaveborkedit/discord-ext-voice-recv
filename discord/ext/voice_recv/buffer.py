@@ -331,9 +331,6 @@ class HeapJitterBuffer:
     def _pop(self) -> RTPPacket:
         return heapq.heappop(self._buffer)[1]
 
-    def _n(self, n: int) -> RTPPacket | None:
-        return heapq.nsmallest(n, self._buffer)[-1][1]
-
     def _get_packet_if_ready(self) -> RTPPacket | None:
         return self._buffer[0][1] if len(self._buffer) > self.prefsize else None
 
@@ -351,18 +348,30 @@ class HeapJitterBuffer:
         sequential = self._last_tx + 1 == self._buffer[0][0]
         positive_seq = self._last_tx > 0
 
-        # We have the next packet ready OR we havent sent a packet out yet
-        if (sequential and positive_seq) or not positive_seq:
+        # We have the next packet ready
+        # OR we havent sent a packet out yet
+        # OR the buffer is full
+        if (
+            (sequential and positive_seq)
+            or not positive_seq
+            or len(self._buffer) >= self.maxsize
+        ):
             self._has_item.set()
         else:
             self._has_item.clear()
 
     def _cleanup(self):
+        while len(self._buffer) > self.maxsize:
+            heapq.heappop(self._buffer)
+
         while self._buffer and self._buffer[0][0] <= self._last_tx:
             heapq.heappop(self._buffer)
 
     def push(self, packet: RTPPacket) -> bool:
-        """TODO"""
+        """
+        Push a packet into the buffer.  If the packet would make the buffer
+        exceed its maxsize, the oldest packet will be dropped.
+        """
 
         # Ignore the packet if its too old
         if packet.sequence <= self._last_rx and self._last_rx > 0:
@@ -375,7 +384,7 @@ class HeapJitterBuffer:
 
         self._last_rx = packet.sequence
 
-        # self._cleanup() # we need to do this in case a push cycles the deque
+        self._cleanup()
         self._update_has_item()
 
         return True
@@ -389,7 +398,7 @@ class HeapJitterBuffer:
         ...
 
     def pop(self, *, timeout=1.0):
-        """TODO
+        """
         If timeout is a positive number, wait as long as timeout for a packet
         to be ready and return that packet, otherwise return None.
         """
