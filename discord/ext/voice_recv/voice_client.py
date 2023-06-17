@@ -45,7 +45,7 @@ class VoiceRecvClient(discord.VoiceClient):
     async def on_voice_state_update(self, data):
         await super().on_voice_state_update(data)
 
-        log.info("Got vsu data: \n%s", pformat(data, compact=True))
+        log.info("Got voice_client VSU: \n%s", pformat(data, compact=True))
 
         channel_id = data['channel_id']
         guild_id = int(data['guild_id']) # type: ignore
