@@ -1,6 +1,8 @@
 # discord-ext-voice-recv
 Voice receive extension package for discord.py
 
+**This extension should be somewhat functional, but the code is not yet feature complete.  No guarantees are given for stability.**
+
 ## Installing
 **Python 3.8 or higher is required**
 
