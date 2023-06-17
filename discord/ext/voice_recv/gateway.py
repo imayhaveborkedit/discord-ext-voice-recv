@@ -4,15 +4,9 @@ from __future__ import annotations
 
 import logging
 
-import asyncio
 from typing import TYPE_CHECKING
 
-from .types import (
-    VoiceVideoPayload,
-    VoiceClientDisconnectPayload,
-    VoiceFlagsPayload,
-    VoicePlatformPayload
-)
+from .video import VoiceVideoStreams
 
 if TYPE_CHECKING:
     from discord.gateway import DiscordVoiceWebSocket
@@ -69,19 +63,22 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
     elif op == self.CLIENT_CONNECT:
         uid = int(data['user_id'])
         vc._add_ssrc(uid, data['audio_ssrc'])
-        # TODO: real payload
-        client.dispatch("voice_member_video", data)
+        member = vc.guild.get_member(uid)
+        streams = VoiceVideoStreams(data=data, vc=vc) # type: ignore
+        client.dispatch("voice_member_video", member, streams)
 
     elif op == self.CLIENT_DISCONNECT:
         uid = int(data['user_id'])
         vc._remove_ssrc(user_id=uid)
-        # TODO: real payload
-        client.dispatch("voice_member_disconnect", uid)
+        member = vc.guild.get_member(uid)
+        client.dispatch("voice_member_disconnect", member)
 
     elif op == FLAGS:
-        # TODO: real payload
-        client.dispatch("voice_flags", data)
+        uid = int(data['user_id'])
+        member = vc.guild.get_member(uid)
+        client.dispatch("voice_flags", member, data['flags'])
 
     elif op == PLATFORM:
-        # TODO: real payload
-        client.dispatch("voice_platform", data)
+        uid = int(data['user_id'])
+        member = vc.guild.get_member(uid)
+        client.dispatch("voice_platform", member, data['platform'])
