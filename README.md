@@ -76,7 +76,7 @@ These are the main functions of a sink, names and purpose reflecting that of the
 
 - The `wants_opus()` function determines if the sink should receive opus packets or decoded PCM packets.  Care should be taken not to unintentionally mix sinks that want different types.
 - The `write()` function is the main callback, where the sink logic takes place.  In a sink pipeline, this could alter, inspect, or log a packet, and then write it to a child sink.  `VoiceData` is a simple container class with attributes for the origin member, opus data, optionally pcm data, and raw audio packet.
-- The `cleanup()` function is identical to `AudioSource.cleanup()`, a finalizer to cleanup any lose ends when the sink has finished its job.
+- The `cleanup()` function is identical to `AudioSource.cleanup()`, a finalizer to cleanup any loose ends when the sink has finished its job.
 
 In addition, sinks also have properties for their `voice_client`, as well as `parent` and `child`/`children` sinks.  Furthermore, sinks will be able to receive events in a similar manner to cogs, but this has not been implemented yet. (TODO)
 
