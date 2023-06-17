@@ -3,6 +3,7 @@
 from .voice_client import *
 from .reader import *
 from .sinks import *
+from .video import *
 from .opus import *
 from .rtp import *
 

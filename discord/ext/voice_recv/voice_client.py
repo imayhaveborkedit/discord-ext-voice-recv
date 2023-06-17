@@ -17,6 +17,8 @@ from .sinks import AudioSink
 if TYPE_CHECKING:
     from typing import Optional, Dict, Tuple
 
+    from .reader import AfterCB
+
 from pprint import pformat
 
 __all__ = [
@@ -94,8 +96,8 @@ class VoiceRecvClient(discord.VoiceClient):
     def _get_id_from_ssrc(self, ssrc: int) -> Optional[int]:
         return self._ssrc_to_id.get(ssrc)
 
-    def listen(self, sink: AudioSink):
-        """Receives audio into a :class:`AudioSink`. TODO: wording"""
+    def listen(self, sink: AudioSink, *, after: Optional[AfterCB]=None):
+        """Receives audio into a :class:`AudioSink`. TODO: more info"""
 
         if not self.is_connected():
             raise discord.ClientException('Not connected to voice.')
@@ -106,7 +108,7 @@ class VoiceRecvClient(discord.VoiceClient):
         if self.is_listening():
             raise discord.ClientException('Already receiving audio.')
 
-        self._reader = AudioReader(sink, self)
+        self._reader = AudioReader(sink, self, after=after)
         self._reader.start()
 
     def is_listening(self) -> bool:
