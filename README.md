@@ -72,7 +72,7 @@ class MySink(voice_recv.AudioSink):
         ...
 ```
 
-These are the main functions of a sink, names and purpose reflecting that of their source counterparts.
+These are the main functions of a sink, names and purpose reflecting that of their source counterparts.  It is important to note that `super().__init__()` must be called when inheriting from `AudioSink`, in contrast to `AudioSource` which does not have a default `__init__` function.
 
 - The `wants_opus()` function determines if the sink should receive opus packets or decoded PCM packets.  Care should be taken not to unintentionally mix sinks that want different types.
 - The `write()` function is the main callback, where the sink logic takes place.  In a sink pipeline, this could alter, inspect, or log a packet, and then write it to a child sink.  `VoiceData` is a simple container class with attributes for the origin member, opus data, optionally pcm data, and raw audio packet.
@@ -102,6 +102,12 @@ An undocumented event dispatched when a user joins a voice channel containing a 
 async def on_voice_platform(member: discord.Member, platform: Optional[int | str])
 ```
 An undocumented event dispatched when a user joins a voice channel containing a platform key, presumably with what platform the user joined on.  However, this field has only ever been seen to contain `None`.
+
+## Currently missing features
+- Sink events (similar to cog event handlers)
+- Silence generation (will be implemented as an included AudioSink)
+- Member speaking state status/event (design not yet decided)
+- Various internal impl details to maintain audio consistency 
 
 ## Future plans
 - Muxer AudioSink (mixes multiple audio streams into a single stream)
