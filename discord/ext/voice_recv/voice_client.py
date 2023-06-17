@@ -88,10 +88,11 @@ class VoiceRecvClient(discord.VoiceClient):
         if ssrc:
             self._ssrc_to_id.pop(ssrc, None)
 
-    # This function has a weird sig because of old code refactors, will fix later
-    def _get_ssrc_mapping(self, *, ssrc: int) -> Tuple[int, Optional[int]]:
-        uid = self._ssrc_to_id.get(ssrc)
-        return ssrc, uid
+    def _get_ssrc_from_id(self, user_id: int) -> Optional[int]:
+        return self._id_to_ssrc.get(user_id)
+
+    def _get_id_from_ssrc(self, ssrc: int) -> Optional[int]:
+        return self._ssrc_to_id.get(ssrc)
 
     def listen(self, sink: AudioSink):
         """Receives audio into a :class:`AudioSink`. TODO: wording"""

@@ -147,12 +147,6 @@ class PacketDecoder(threading.Thread):
 
         self.start() # no way this causes any problems haha
 
-    def _lookup_ssrc(self, ssrc: int) -> Optional[int]:
-        vc = self.sink.voice_client
-        _, user_id = vc._get_ssrc_mapping(ssrc=ssrc)
-
-        return user_id
-
     def _get_user(self, user_id: int) -> Optional[User]:
         vc = self.sink.voice_client
         return vc.guild.get_member(user_id) or vc.client.get_user(user_id)
@@ -243,7 +237,7 @@ class PacketDecoder(threading.Thread):
             member = self._get_cached_member()
 
             if not member:
-                self._cached_id = self._lookup_ssrc(self.ssrc)
+                self._cached_id = self.sink.voice_client._get_id_from_ssrc(self.ssrc)
                 member = self._get_cached_member()
 
             data = VoiceData(packet, member, pcm=pcm)
