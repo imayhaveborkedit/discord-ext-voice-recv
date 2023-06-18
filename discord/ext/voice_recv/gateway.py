@@ -69,9 +69,10 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
 
     elif op == self.CLIENT_DISCONNECT:
         uid = int(data['user_id'])
+        ssrc = vc._get_ssrc_from_id(uid)
         vc._remove_ssrc(user_id=uid)
         member = vc.guild.get_member(uid)
-        client.dispatch("voice_member_disconnect", member)
+        client.dispatch("voice_member_disconnect", member, ssrc)
 
     elif op == FLAGS:
         uid = int(data['user_id'])

@@ -84,9 +84,9 @@ This extension comes with several useful built in sinks, which I will briefly ex
 
 ## New events
 ```python
-async def on_voice_member_disconnect(member: discord.Member)
+async def on_voice_member_disconnect(member: discord.Member, ssrc: int)
 ```
-Called when someone disconnects from a voice channel.
+Called when someone disconnects from a voice channel. The `ssrc` parameter is the unique id a member has to identify which packets belong to them.  This is useful when using custom sinks, particularly those that handle packets from multiple users.
 
 ```python
 async def on_voice_member_video(member: discord.Member, data: voice_recv.VoiceVideoStreams)
