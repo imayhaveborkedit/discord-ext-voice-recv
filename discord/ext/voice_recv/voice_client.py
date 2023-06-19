@@ -15,7 +15,7 @@ from .reader import AudioReader
 from .sinks import AudioSink
 
 if TYPE_CHECKING:
-    from typing import Optional, Dict, Tuple
+    from typing import Optional, Dict
 
     from .reader import AfterCB
 
@@ -45,34 +45,18 @@ class VoiceRecvClient(discord.VoiceClient):
         return ws
 
     async def on_voice_state_update(self, data):
+        old_channel_id = self.channel.id if self.channel else None
+
         await super().on_voice_state_update(data)
 
-        log.info("Got voice_client VSU: \n%s", pformat(data, compact=True))
+        log.debug("Got voice_client VSU: \n%s", pformat(data, compact=True))
 
-        channel_id = data['channel_id']
-        guild_id = int(data['guild_id']) # type: ignore
-        user_id = int(data['user_id'])
+        channel_id = int(data['channel_id'])
 
-        # if channel_id and int(channel_id) != self.channel.id and self._reader:
-        #     # someone moved channels
-        #     if self.client.user.id == user_id:
-        #         # we moved channels
-        #         # print("Resetting all decoders")
-        #         self._reader._reset_decoders()
-
-        #     # TODO: figure out how to check if either old/new channel
-        #     #       is ours so we don't go around resetting decoders
-        #     #       for irrelevant channel moving
-
-        #     else:
-        #         # someone else moved channels
-        #         # print(f"ws: Attempting to reset decoder for {user_id}")
-        #         ssrc, _ = self._get_ssrc_mapping(user_id=data['user_id'])
-        #         self._reader._reset_decoders(ssrc)
-
-    # async def on_voice_server_update(self, data):
-    #     await super().on_voice_server_update(data)
-    #     ...
+        # if we joined, left, or switched channels, reset the decoders
+        if self._reader and channel_id != old_channel_id:
+            log.debug("Resetting all decoders in guild %s", self.guild.id)
+            self._reader.router.destroy_all_decoders()
 
     def cleanup(self):
         super().cleanup()

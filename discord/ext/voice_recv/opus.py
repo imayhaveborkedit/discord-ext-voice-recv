@@ -115,24 +115,39 @@ class PacketRouter:
                 decoder.flush()
                 decoder.stop()
 
-    def flush(self, ssrc: int):
+    def destroy_all_decoders(self):
         with self._lock:
-            decoder = self.decoders.get(ssrc, None)
+            for ssrc in list(self.decoders.keys()):
+                self.destroy_decoder(ssrc)
 
-            if decoder is not None:
-                decoder.flush()
+    # def flush_decoder(self, ssrc: int):
+    #     with self._lock:
+    #         decoder = self.decoders.get(ssrc, None)
 
-    def flush_all(self):
-        with self._lock:
-            for decoder in self.decoders.values():
-                decoder.flush()
+    #         if decoder is not None:
+    #             decoder.flush()
+
+    # def flush_all(self):
+    #     with self._lock:
+    #         for decoder in self.decoders.values():
+    #             decoder.flush()
+
+    # def reset_decoder(self, ssrc: int):
+    #     with self._lock:
+    #         decoder = self.decoders.get(ssrc, None)
+
+    #         if decoder is not None:
+    #             decoder.reset()
+
+    # def reset_all_decoders(self):
+    #     with self._lock:
+    #         for decoder in self.decoders.values():
+    #             decoder.reset()
 
     def stop(self):
         with self._lock:
             self._end_writer.set()
-
-            for ssrc in list(self.decoders.keys()):
-                self.destroy_decoder(ssrc)
+            self.destroy_all_decoders()
 
 
 class PacketDecoder(threading.Thread):
@@ -202,11 +217,11 @@ class PacketDecoder(threading.Thread):
             finally:
                 self._buffer = buffer
 
-    def reset(self):
-        with self._lock:
-            self._buffer.reset()
-            self._decoder = None if self.sink.wants_opus() else Decoder()
-            self._last_seq = self._last_ts = 0
+    # def reset(self):
+    #     with self._lock:
+    #         self._buffer.reset()
+    #         self._decoder = None if self.sink.wants_opus() else Decoder()
+    #         self._last_seq = self._last_ts = 0
 
     def set_sink(self, sink: AudioSink):
         with self._lock:
