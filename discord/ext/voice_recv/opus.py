@@ -7,13 +7,13 @@ import queue
 import logging
 import threading
 
-from collections import deque
 from typing import TYPE_CHECKING
 
 from .buffer import HeapJitterBuffer as JitterBuffer
 from .rtp import *
 
 import discord
+
 from discord.opus import Decoder
 
 if TYPE_CHECKING:
@@ -115,6 +115,18 @@ class PacketRouter:
                 decoder.flush()
                 decoder.stop()
 
+    def flush(self, ssrc: int):
+        with self._lock:
+            decoder = self.decoders.get(ssrc, None)
+
+            if decoder is not None:
+                decoder.flush()
+
+    def flush_all(self):
+        with self._lock:
+            for decoder in self.decoders.values():
+                decoder.flush()
+
     def stop(self):
         with self._lock:
             self._end_writer.set()
@@ -135,8 +147,8 @@ class PacketDecoder(threading.Thread):
         self.sink = sink
         self.ssrc = ssrc
 
-        self._decoder = None if sink.wants_opus() else Decoder()
-        self._buffer = JitterBuffer()
+        self._decoder: Optional[Decoder] = None if sink.wants_opus() else Decoder()
+        self._buffer: JitterBuffer = JitterBuffer()
         self._cached_id: Optional[int] = None
 
         self._last_ts: int = 0
@@ -166,8 +178,35 @@ class PacketDecoder(threading.Thread):
         self._buffer.push(packet)
 
     def flush(self):
-        rest = self._buffer.flush()
-        # TODO: do stuff with the rest
+        with self._lock:
+            # This looks really stupid but we need to do this because
+            # the decode function uses buffer functions
+            rest = self._buffer.flush()
+            buffer = self._buffer
+            self._buffer = _BufferProxy(rest) # type: ignore
+
+            # We have temporarily replaced the buffer with a proxy object
+            # which has filled in gaps with Nones.  The fake buffer acts
+            # enough like the real buffer to be functional but without
+            # all of the checks and logic the real one has.  We then cycle
+            # through the remaining packets and everything should JustWork(TM)
+
+            try:
+                while self._buffer:
+                    packet = self._buffer.pop()
+
+                    if packet is not None:
+                        self._process_packet(packet)
+                    else:
+                        self._process_packet(self._make_fakepacket())
+            finally:
+                self._buffer = buffer
+
+    def reset(self):
+        with self._lock:
+            self._buffer.reset()
+            self._decoder = None if self.sink.wants_opus() else Decoder()
+            self._last_seq = self._last_ts = 0
 
     def set_sink(self, sink: AudioSink):
         with self._lock:
@@ -223,6 +262,23 @@ class PacketDecoder(threading.Thread):
 
         return packet, pcm
 
+    def _process_packet(self, packet: Packet):
+        pcm = None
+        if not self.sink.wants_opus():
+            packet, pcm = self._handle_decode(packet)
+
+        member = self._get_cached_member()
+
+        if not member:
+            self._cached_id = self.sink.voice_client._get_id_from_ssrc(self.ssrc)
+            member = self._get_cached_member()
+
+        data = VoiceData(packet, member, pcm=pcm)
+
+        self.sink.write(member, data)
+        self._last_seq = packet.sequence
+        self._last_ts = packet.timestamp
+
     def _do_run(self):
         while not self._end_thread.is_set():
             packet = self._get_next_packet()
@@ -230,22 +286,8 @@ class PacketDecoder(threading.Thread):
             if packet is None:
                 continue
 
-            pcm = None
-            if not self.sink.wants_opus():
-                packet, pcm = self._handle_decode(packet)
-
-            member = self._get_cached_member()
-
-            if not member:
-                self._cached_id = self.sink.voice_client._get_id_from_ssrc(self.ssrc)
-                member = self._get_cached_member()
-
-            data = VoiceData(packet, member, pcm=pcm)
-
             with self._lock:
-                self.sink.write(member, data)
-                self._last_seq = packet.sequence
-                self._last_ts = packet.timestamp
+                self._process_packet(packet)
 
     def run(self):
         try:
@@ -256,6 +298,49 @@ class PacketDecoder(threading.Thread):
     def stop(self, *, wait: Optional[float]=None):
         self._end_thread.set()
         self.join(wait) # is this necesary, useful even?
+
+
+class _BufferProxy:
+    def __init__(self, contents: list[RTPPacket]):
+        self._buffer: list[RTPPacket | None] = []
+
+        if contents:
+            self._buffer.append(contents.pop(0))
+
+        for packet in contents:
+            # the last item in the buffer should always be a packet
+            nones = packet.sequence - self._buffer[-1].sequence + 1 # type: ignore
+
+            for _ in range(nones):
+                self._buffer.append(None)
+
+            self._buffer.append(packet)
+
+    def __len__(self):
+        return len(self._buffer)
+
+    def pop(self, *, timeout=0.1) -> RTPPacket | None:
+        if self._buffer:
+            return self._buffer.pop(0)
+
+    def peek_next(self) -> RTPPacket | None:
+        if self._buffer:
+            return self._buffer[0]
+
+    def peek(self, **_):
+        return self.peek_next()
+
+    def push(self, packet):
+        return
+
+    def gap(self):
+        return 0
+
+    def flush(self):
+        return []
+
+    def reset(self):
+        return
 
 
 #############################################################################

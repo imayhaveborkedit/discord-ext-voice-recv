@@ -170,21 +170,28 @@ class HeapJitterBuffer:
 
         return 0
 
-    def flush(self, *, reset: bool=False) -> list[RTPPacket]:
+    def flush(self) -> list[RTPPacket]:
         """
-        Return all remaining packets and optionally reset internal counters.
+        Return all remaining packets.
         """
 
-        packets = [p for (s, p) in sorted(self._buffer)]
+        packets = [p for (_, p) in sorted(self._buffer)]
         self._buffer.clear()
 
         if packets:
-            self._last_seq = packets[-1].sequence
+            self._last_tx = packets[-1].sequence
 
         self._prefill = self.prefill
         self._has_item.clear()
 
-        if reset:
-            self._last_tx = self._last_rx = 0
-
         return packets
+
+    def reset(self):
+        """
+        Clear buffer and reset internal counters.
+        """
+
+        self._buffer.clear()
+        self._has_item.clear()
+        self._prefill = self.prefill
+        self._last_tx = self._last_rx = 0
