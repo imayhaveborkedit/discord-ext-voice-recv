@@ -1,7 +1,8 @@
 # discord-ext-voice-recv
 Voice receive extension package for discord.py
 
-**This extension should be somewhat functional, but the code is not yet feature complete.  No guarantees are given for stability.**
+### Warning
+**This extension should be more or less functional, but the code is not yet feature complete.  No guarantees are given for stability or random breaking changes.**
 
 ## Installing
 **Python 3.8 or higher is required**
@@ -94,9 +95,9 @@ async def on_voice_member_video(member: discord.Member, data: voice_recv.VoiceVi
 Called when someone in voice chat toggles their webcam on or off, NOT screenshare.  Screenshare status is only indicated in the `self_video` attribute of `discord.VoiceState`.
 
 ```python
-async def on_voice_flags(member: discord.Member, flags: int)
+async def on_voice_flags(member: discord.Member, flags: Optional[int])
 ```
-An undocumented event dispatched when a user joins a voice channel containing a flags bitfield.  Only values `0` and `2` have been observed so far, but their meaning remains unknown.
+An undocumented event dispatched when a user joins a voice channel containing a flags bitfield.  Only values `0`, `2`, and `None` have been observed so far, but their meaning remains unknown.
 
 ```python
 async def on_voice_platform(member: discord.Member, platform: Optional[int | str])
@@ -107,7 +108,7 @@ An undocumented event dispatched when a user joins a voice channel containing a 
 - Sink events (similar to cog event handlers)
 - Silence generation (will be implemented as an included AudioSink)
 - Member speaking state status/event (design not yet decided)
-- Various internal impl details to maintain audio consistency 
+- Various internal impl details to maintain audio consistency
 
 ## Future plans
 - Muxer AudioSink (mixes multiple audio streams into a single stream)
