@@ -107,6 +107,9 @@ class PacketRouter:
         if decoder is not None:
             decoder.notify(user_id)
 
+    def dispatch(self, event: str, *args, **kwargs):
+        ...
+
     def destroy_decoder(self, ssrc: int):
         with self._lock:
             decoder = self.decoders.pop(ssrc, None)

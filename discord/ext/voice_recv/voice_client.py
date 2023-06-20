@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 
 import discord
 from discord.gateway import DiscordVoiceWebSocket
+from discord.utils import MISSING
 
 from typing import TYPE_CHECKING
 
@@ -15,8 +17,8 @@ from .reader import AudioReader
 from .sinks import AudioSink
 
 if TYPE_CHECKING:
-    from typing import Optional, Dict
-
+    from typing import Optional, Dict, Any
+    from discord.ext.commands._types import CoroFunc
     from .reader import AfterCB
 
 from pprint import pformat
@@ -35,6 +37,7 @@ class VoiceRecvClient(discord.VoiceClient):
         self._reader: Optional[AudioReader] = None
         self._ssrc_to_id: Dict[int, int] = {}
         self._id_to_ssrc: Dict[int, int] = {}
+        self._event_listeners: dict[str, list] = {}
 
     async def connect_websocket(self):
         ws = await DiscordVoiceWebSocket.from_client(self, hook=hook)
@@ -58,8 +61,53 @@ class VoiceRecvClient(discord.VoiceClient):
             log.debug("Resetting all decoders in guild %s", self.guild.id)
             self._reader.router.destroy_all_decoders()
 
+    def add_listener(self, func: CoroFunc, *, name: str=MISSING):
+        name = func.__name__ if name is MISSING else name
+
+        if not asyncio.iscoroutinefunction(func):
+            raise TypeError('Listeners must be coroutines')
+
+        if name in self._event_listeners:
+            self._event_listeners[name].append(func)
+        else:
+            self._event_listeners[name] = [func]
+
+    def remove_listener(self, func: CoroFunc, *, name: str=MISSING):
+        name = func.__name__ if name is MISSING else name
+
+        if name in self._event_listeners:
+            try:
+                self._event_listeners[name].remove(func)
+            except ValueError:
+                pass
+
+    async def _run_event(self, coro, event_name, *args, **kwargs):
+        try:
+            await coro(*args, **kwargs)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.exception("Error calling %s", event_name)
+
+    def _schedule_event(self, coro, event_name, *args, **kwargs):
+        wrapped = self._run_event(coro, event_name, *args, **kwargs)
+        return self.client.loop.create_task(wrapped, name=f"ext.voice_recv: {event_name}")
+
+    def dispatch(self, event: str, /, *args: Any, **kwargs: Any):
+        log.debug("Dispatching voice_client event %s", event)
+
+        event_name = f"on_{event}"
+        for coro in self._event_listeners.get(event_name, []):
+            self._schedule_event(coro, event_name, *args, **kwargs)
+
+        if self._reader:
+            self._reader.router.dispatch(event, *args, **kwargs)
+
+        self.client.dispatch(event, *args, **kwargs)
+
     def cleanup(self):
         super().cleanup()
+        self._event_listeners.clear()
         self.stop()
 
     def _add_ssrc(self, user_id: int, ssrc: int):

@@ -65,7 +65,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
         vc._add_ssrc(uid, data['audio_ssrc'])
         member = vc.guild.get_member(uid)
         streams = VoiceVideoStreams(data=data, vc=vc) # type: ignore
-        client.dispatch("voice_member_video", member, streams)
+        vc.dispatch("voice_member_video", member, streams)
 
     elif op == self.CLIENT_DISCONNECT:
         uid = int(data['user_id'])
@@ -77,14 +77,14 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
 
         vc._remove_ssrc(user_id=uid)
         member = vc.guild.get_member(uid)
-        client.dispatch("voice_member_disconnect", member, ssrc)
+        vc.dispatch("voice_member_disconnect", member, ssrc)
 
     elif op == FLAGS:
         uid = int(data['user_id'])
         member = vc.guild.get_member(uid)
-        client.dispatch("voice_flags", member, data['flags'])
+        vc.dispatch("voice_flags", member, data['flags'])
 
     elif op == PLATFORM:
         uid = int(data['user_id'])
         member = vc.guild.get_member(uid)
-        client.dispatch("voice_platform", member, data['platform'])
+        vc.dispatch("voice_platform", member, data['platform'])
