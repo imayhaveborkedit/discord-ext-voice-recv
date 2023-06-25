@@ -57,7 +57,11 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
 
     elif op == self.SPEAKING:
         # SPEAKING is not actually speaking anymore but it still has the ssrc
-        vc._add_ssrc(int(data['user_id']), data['ssrc'])
+        uid = int(data['user_id'])
+        ssrc = data['ssrc']
+        vc._add_ssrc(uid, ssrc)
+        member = vc.guild.get_member(uid)
+        vc.dispatch("voice_member_speak", member, ssrc)
 
     # aka VIDEO
     elif op == self.CLIENT_CONNECT:
@@ -72,7 +76,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
         ssrc = vc._get_ssrc_from_id(uid)
 
         if vc._reader is not None and ssrc is not None:
-            log.debug("Flushing and resetting decoder for %s, ssrc %s", uid, ssrc)
+            log.debug("Destroying decoder for %s, ssrc=%s", uid, ssrc)
             vc._reader.router.destroy_decoder(ssrc)
 
         vc._remove_ssrc(user_id=uid)
@@ -82,9 +86,9 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
     elif op == FLAGS:
         uid = int(data['user_id'])
         member = vc.guild.get_member(uid)
-        vc.dispatch("voice_flags", member, data['flags'])
+        vc.dispatch("voice_member_flags", member, data['flags'])
 
     elif op == PLATFORM:
         uid = int(data['user_id'])
         member = vc.guild.get_member(uid)
-        vc.dispatch("voice_platform", member, data['platform'])
+        vc.dispatch("voice_member_platform", member, data['platform'])

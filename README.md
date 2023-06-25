@@ -85,6 +85,13 @@ This extension comes with several useful built in sinks, which I will briefly ex
 
 ## New events
 ```python
+async def on_voice_member_speak(member: discord.Member, ssrc: int)
+```
+Called when a member first speaks (transmits audio) in a voice channel.  This event is only called once per their voice session (ssrc assignment).  Any packets received from this user before this event fires can (probably) be safely ignored since they are likely just silence packets.
+
+This is **NOT** a speaking indicator event.  The speaking indicator is determined by packet activity.  This functionality will be added in the future.
+
+```python
 async def on_voice_member_disconnect(member: discord.Member, ssrc: int)
 ```
 Called when someone disconnects from a voice channel. The `ssrc` parameter is the unique id a member has to identify which packets belong to them.  This is useful when using custom sinks, particularly those that handle packets from multiple users.
@@ -95,12 +102,12 @@ async def on_voice_member_video(member: discord.Member, data: voice_recv.VoiceVi
 Called when someone in voice chat toggles their webcam on or off, NOT screenshare.  Screenshare status is only indicated in the `self_video` attribute of `discord.VoiceState`.
 
 ```python
-async def on_voice_flags(member: discord.Member, flags: Optional[int])
+async def on_voice_member_flags(member: discord.Member, flags: Optional[int])
 ```
 An undocumented event dispatched when a user joins a voice channel containing a flags bitfield.  Only values `0`, `2`, and `None` have been observed so far, but their meaning remains unknown.
 
 ```python
-async def on_voice_platform(member: discord.Member, platform: Optional[int | str])
+async def on_voice_member_platform(member: discord.Member, platform: Optional[int | str])
 ```
 An undocumented event dispatched when a user joins a voice channel containing a platform key, presumably with what platform the user joined on.  However, this field has only ever been seen to contain `None`.
 
