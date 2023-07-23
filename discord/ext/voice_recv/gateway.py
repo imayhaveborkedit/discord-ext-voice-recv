@@ -42,7 +42,6 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
     op: int = msg['op']
     data: dict = msg.get('d') # type: ignore
     vc: VoiceRecvClient = self._connection # type: ignore
-    client = vc.client
 
     if op == self.READY:
         self.ssrc: int = data['ssrc'] # type: ignore

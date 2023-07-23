@@ -38,10 +38,10 @@ __all__ = [
     'MultiAudioSink',
     'BasicSink',
     'WaveSink',
-    # 'PCMVolumeTransformerFilter',
-    # 'ConditionalFilter',
-    # 'TimedFilter',
-    # 'UserFilter',
+    'PCMVolumeTransformer',
+    'ConditionalFilter',
+    'TimedFilter',
+    'UserFilter',
 ]
 
 # TODO: use this in more places
@@ -103,11 +103,13 @@ class AudioSink(BaseSink):
         self.cleanup()
 
     @property
-    def voice_client(self) -> VoiceRecvClient:
+    def voice_client(self) -> VoiceRecvClient | None:
+        """
+        Guaranteed to not be None inside write()
+        """
         if self.parent is not None:
             return self.parent.voice_client
         else:
-            assert self._voice_client
             return self._voice_client
 
     @property
@@ -125,6 +127,7 @@ class AudioSink(BaseSink):
 
 class MultiAudioSink(AudioSink):
     def __init__(self, destinations: Sequence[AudioSink], /):
+        # Intentionally not calling super().__init__ here
         self._children = tuple(destinations)
 
         if destinations is not None:
