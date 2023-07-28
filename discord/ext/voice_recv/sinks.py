@@ -5,19 +5,21 @@ from __future__ import annotations
 import abc
 import time
 import wave
+import inspect
 import audioop
 import logging
-
-from typing import TYPE_CHECKING
 
 from .opus import VoiceData
 
 import discord
 
+from discord.utils import MISSING
 from discord.opus import Decoder as OpusDecoder
 
+from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from typing import Callable, Optional, Any, IO, Sequence
+    from typing import Callable, Optional, Any, IO, Sequence, Tuple
 
     from .rtp import RTPPacket, RTCPPacket, FakePacket
     from .voice_client import VoiceRecvClient
@@ -52,10 +54,38 @@ class VoiceRecvException(discord.DiscordException):
         self.message = message
 
 
-class BaseSink(metaclass=abc.ABCMeta):
-    _voice_client: Optional[VoiceRecvClient] = None
-    _parent: Optional[AudioSink] = None
+class SinkMeta(abc.ABCMeta):
+    __sink_listeners__: list[Tuple[str, str]]
 
+    def __new__(cls, name: str, bases: Tuple[type, ...], attrs: dict[str, Any], **kwargs):
+        listeners: dict[str, Any] = {}
+        new_cls = super().__new__(cls, name, bases, attrs, **kwargs)
+
+        for base in reversed(new_cls.__mro__):
+            for elem, value in base.__dict__.items():
+                # If it exists in a subclass, delete the higher level one
+                if elem in listeners:
+                    del listeners[elem]
+
+                is_static_method = isinstance(value, staticmethod)
+                if is_static_method:
+                    value = value.__func__
+
+                if not hasattr(value, '__sink_listener__'):
+                    continue
+
+                listeners[elem] = value
+
+        listener_list = []
+        for listener in listeners.values():
+            for listener_name in listener.__sink_listener_names__:
+                listener_list.append((listener_name, listener.__name__))
+
+        new_cls.__sink_listeners__ = listener_list
+        return new_cls
+
+
+class SinkABC(metaclass=SinkMeta):
     @property
     @abc.abstractmethod
     def parent(self) -> Optional[AudioSink]:
@@ -69,6 +99,11 @@ class BaseSink(metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod
     def children(self) -> Sequence[AudioSink]:
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def voice_client(self) -> Optional[VoiceRecvClient]:
         raise NotImplementedError
 
     # TODO: handling opus vs pcm is not strictly mutually exclusive
@@ -92,7 +127,11 @@ class BaseSink(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
-class AudioSink(BaseSink):
+class AudioSink(SinkABC):
+    _voice_client: Optional[VoiceRecvClient]
+    _parent: Optional[AudioSink]
+    _child: Optional[AudioSink]
+
     def __init__(self, destination: Optional[AudioSink]=None, /):
         self._child = destination
 
@@ -103,16 +142,6 @@ class AudioSink(BaseSink):
         self.cleanup()
 
     @property
-    def voice_client(self) -> VoiceRecvClient | None:
-        """
-        Guaranteed to not be None inside write()
-        """
-        if self.parent is not None:
-            return self.parent.voice_client
-        else:
-            return self._voice_client
-
-    @property
     def parent(self) -> Optional[AudioSink]:
         return self._parent
 
@@ -121,14 +150,51 @@ class AudioSink(BaseSink):
         return self._child
 
     @property
-    def children(self) -> Sequence[AudioSink]:
+    def children(self) -> list[AudioSink]:
         return [self._child] if self._child else []
+
+    @property
+    def voice_client(self) -> Optional[VoiceRecvClient]:
+        """Guaranteed to not be None inside write()"""
+
+        if self.parent is not None:
+            return self.parent.voice_client
+        else:
+            return self._voice_client
+
+    @classmethod
+    def listener(cls, name: str=MISSING):
+        """Marks a function as an event listener."""
+
+        if name is not MISSING and not isinstance(name, str):
+            raise TypeError(f'AudioSink.listener expected str but received {type(name).__name__} instead.')
+
+        def decorator(func):
+            actual = func
+
+            if isinstance(actual, staticmethod):
+                actual = actual.__func__
+
+            if inspect.iscoroutinefunction(actual):
+                raise TypeError('Listener function must not be a coroutine function.')
+
+            actual.__sink_listener__ = True
+            to_assign = name or actual.__name__
+
+            try:
+                actual.__sink_listener_names__.append(to_assign)
+            except AttributeError:
+                actual.__sink_listener_names__ = [to_assign]
+
+            return func
+
+        return decorator
 
 
 class MultiAudioSink(AudioSink):
     def __init__(self, destinations: Sequence[AudioSink], /):
         # Intentionally not calling super().__init__ here
-        self._children = tuple(destinations)
+        self._children = list(destinations)
 
         if destinations is not None:
             for dest in destinations:
@@ -139,8 +205,8 @@ class MultiAudioSink(AudioSink):
         return self._children[0] if self._children else None
 
     @property
-    def children(self) -> Sequence[AudioSink]:
-        return self._children
+    def children(self) -> list[AudioSink]:
+        return self._children.copy()
 
 
 class BasicSink(AudioSink):
