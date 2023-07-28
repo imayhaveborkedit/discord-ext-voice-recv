@@ -17,13 +17,16 @@ import discord
 from discord.opus import Decoder
 
 if TYPE_CHECKING:
-    from typing import Deque, Optional, Tuple, Dict
+    from typing import Optional, Tuple, Dict, Callable, Any
     from .sinks import AudioSink
+    from .voice_client import VoiceRecvClient
 
     AudioPacket = RTPPacket | FakePacket
     # Packet = AudioPacket | SilencePacket
     Packet = AudioPacket
     User = discord.User | discord.Member
+
+    EventCB = Callable[..., Any]
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +60,7 @@ class PacketRouter:
         self.sink = sink
         self.decoders: Dict[int, PacketDecoder] = {}
 
+        self._event_listeners: dict[str, list[EventCB]] = {}
         self._rtcp_buffer = queue.Queue()
         self._lock = threading.RLock()
         self._end_writer = threading.Event()
@@ -67,6 +71,8 @@ class PacketRouter:
             name=f"rtcp-writer-{id(self):x}"
         )
         self._rtcp_writer.start()
+
+        self.register_events()
 
     def _get_decoder(self, ssrc: int) -> PacketDecoder:
         decoder = self.decoders.get(ssrc, None)
@@ -94,12 +100,38 @@ class PacketRouter:
                 with self._lock:
                     self.sink.write_rtcp(rtcp_packet)
 
+    def register_events(self):
+        with self._lock:
+            for child in self.sink.walk_children():
+                for name, method_name in child.__sink_listeners__:
+                    func = getattr(child, method_name)
+
+                    if name in self._event_listeners:
+                        self._event_listeners[name].append(func)
+                    else:
+                        self._event_listeners[name] = [func]
+
+    def unregister_events(self):
+        with self._lock:
+            for child in self.sink.walk_children():
+                for name, method_name in child.__sink_listeners__:
+                    func = getattr(child, method_name)
+
+                    if name in self._event_listeners:
+                        try:
+                            self._event_listeners[name].remove(func)
+                        except ValueError:
+                            pass
+
     def set_sink(self, sink: AudioSink):
         with self._lock:
+            self.unregister_events()
             self.sink = sink
 
             for decoder in self.decoders.values():
                 decoder.set_sink(sink)
+
+            self.register_events()
 
     def notify(self, ssrc: int, user_id: int):
         decoder = self.decoders.get(ssrc, None)
@@ -107,8 +139,14 @@ class PacketRouter:
         if decoder is not None:
             decoder.notify(user_id)
 
-    def dispatch(self, event: str, *args, **kwargs):
+    def dispatch(self, event: str, *args: Any, **kwargs: Any):
+        # TODO: this is called from the async thread
+        #       need to queue and call from another
         ...
+
+    def _dispatch_to_listeners(self, event: str, *args: Any, **kwargs: Any):
+        for listener in self._event_listeners.get(f'on_{event}', []):
+            listener(*args, **kwargs)
 
     def destroy_decoder(self, ssrc: int):
         with self._lock:
@@ -178,7 +216,7 @@ class PacketDecoder(threading.Thread):
         self.start() # no way this causes any problems haha
 
     def _get_user(self, user_id: int) -> Optional[User]:
-        vc = self.sink.voice_client
+        vc: VoiceRecvClient = self.sink.voice_client # type: ignore
         return vc.guild.get_member(user_id) or vc.client.get_user(user_id)
 
     def _get_cached_member(self) -> Optional[User]:
@@ -288,7 +326,7 @@ class PacketDecoder(threading.Thread):
         member = self._get_cached_member()
 
         if not member:
-            self._cached_id = self.sink.voice_client._get_id_from_ssrc(self.ssrc)
+            self._cached_id = self.sink.voice_client._get_id_from_ssrc(self.ssrc) # type: ignore
             member = self._get_cached_member()
 
         data = VoiceData(packet, member, pcm=pcm)

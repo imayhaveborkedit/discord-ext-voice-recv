@@ -19,7 +19,7 @@ from discord.opus import Decoder as OpusDecoder
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Callable, Optional, Any, IO, Sequence, Tuple
+    from typing import Callable, Optional, Any, IO, Sequence, Tuple, Generator
 
     from .rtp import RTPPacket, RTCPPacket, FakePacket
     from .voice_client import VoiceRecvClient
@@ -84,8 +84,10 @@ class SinkMeta(abc.ABCMeta):
         new_cls.__sink_listeners__ = listener_list
         return new_cls
 
-
+# TODO: replace AudioSink hints with a sink generic
 class SinkABC(metaclass=SinkMeta):
+    __sink_listeners__: list[Tuple[str, str]]
+
     @property
     @abc.abstractmethod
     def parent(self) -> Optional[AudioSink]:
@@ -125,6 +127,11 @@ class SinkABC(metaclass=SinkMeta):
     @abc.abstractmethod
     def cleanup(self):
         raise NotImplementedError
+
+    def walk_children(self) -> Generator[AudioSink, None, None]:
+        for child in self.children:
+            yield child
+            yield from child.walk_children()
 
 
 class AudioSink(SinkABC):
