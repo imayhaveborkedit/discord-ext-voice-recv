@@ -136,7 +136,7 @@ class SinkABC(metaclass=SinkMeta):
 
 class AudioSink(SinkABC):
     _voice_client: Optional[VoiceRecvClient]
-    _parent: Optional[AudioSink]
+    _parent: Optional[AudioSink] = None
     _child: Optional[AudioSink]
 
     def __init__(self, destination: Optional[AudioSink]=None, /):

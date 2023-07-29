@@ -18,6 +18,7 @@ from discord.opus import Decoder
 
 if TYPE_CHECKING:
     from typing import Optional, Tuple, Dict, Callable, Any
+    from queue import SimpleQueue
     from .sinks import AudioSink
     from .voice_client import VoiceRecvClient
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     User = discord.User | discord.Member
 
     EventCB = Callable[..., Any]
+    EventData = Tuple[str, Tuple[Any], Dict[str, Any]]
 
 log = logging.getLogger(__name__)
 
@@ -61,16 +63,16 @@ class PacketRouter:
         self.decoders: Dict[int, PacketDecoder] = {}
 
         self._event_listeners: dict[str, list[EventCB]] = {}
-        self._rtcp_buffer = queue.Queue()
+        self._event_buffer: SimpleQueue[EventData] = queue.SimpleQueue()
         self._lock = threading.RLock()
         self._end_writer = threading.Event()
 
-        self._rtcp_writer = threading.Thread(
-            target=self._rtcp_loop,
+        self._event_writer = threading.Thread(
+            target=self._event_loop,
             daemon=True,
-            name=f"rtcp-writer-{id(self):x}"
+            name=f"event-writer-{id(self):x}"
         )
-        self._rtcp_writer.start()
+        self._event_writer.start()
 
         self.register_events()
 
@@ -88,40 +90,53 @@ class PacketRouter:
         decoder.feed_rtp(packet)
 
     def feed_rtcp(self, packet: RTCPPacket):
-        self._rtcp_buffer.put_nowait(packet)
+        guild = self.sink.voice_client.guild if self.sink.voice_client else None
+        self.dispatch('rtcp_packet', packet, guild)
 
-    def _rtcp_loop(self):
+    def _event_loop(self):
         while not self._end_writer.is_set():
             try:
-                rtcp_packet = self._rtcp_buffer.get(timeout=2)
+                event, args, kwargs = self._event_buffer.get(timeout=0.5)
             except queue.Empty:
                 continue
             else:
                 with self._lock:
-                    self.sink.write_rtcp(rtcp_packet)
+                    self._dispatch_to_listeners(event, *args, **kwargs)
 
     def register_events(self):
         with self._lock:
+            self._register_listeners(self.sink)
             for child in self.sink.walk_children():
-                for name, method_name in child.__sink_listeners__:
-                    func = getattr(child, method_name)
+                self._register_listeners(child)
 
-                    if name in self._event_listeners:
-                        self._event_listeners[name].append(func)
-                    else:
-                        self._event_listeners[name] = [func]
+    def _register_listeners(self, sink: AudioSink):
+        log.warning("registering events for %s", self.sink)
+        log.warning("listeners: %s", self.sink.__sink_listeners__)
+
+        for name, method_name in sink.__sink_listeners__:
+            func = getattr(sink, method_name)
+
+            log.warning("Registering %s for %s", name, method_name)
+            if name in self._event_listeners:
+                self._event_listeners[name].append(func)
+            else:
+                self._event_listeners[name] = [func]
 
     def unregister_events(self):
         with self._lock:
+            self._unregister_listeners(self.sink)
             for child in self.sink.walk_children():
-                for name, method_name in child.__sink_listeners__:
-                    func = getattr(child, method_name)
+                self._unregister_listeners(child)
 
-                    if name in self._event_listeners:
-                        try:
-                            self._event_listeners[name].remove(func)
-                        except ValueError:
-                            pass
+    def _unregister_listeners(self, sink: AudioSink):
+        for name, method_name in sink.__sink_listeners__:
+            func = getattr(sink, method_name)
+
+            if name in self._event_listeners:
+                try:
+                    self._event_listeners[name].remove(func)
+                except ValueError:
+                    pass
 
     def set_sink(self, sink: AudioSink):
         with self._lock:
@@ -140,9 +155,7 @@ class PacketRouter:
             decoder.notify(user_id)
 
     def dispatch(self, event: str, *args: Any, **kwargs: Any):
-        # TODO: this is called from the async thread
-        #       need to queue and call from another
-        ...
+        self._event_buffer.put_nowait((event, args, kwargs))
 
     def _dispatch_to_listeners(self, event: str, *args: Any, **kwargs: Any):
         for listener in self._event_listeners.get(f'on_{event}', []):

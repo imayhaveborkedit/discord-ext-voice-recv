@@ -1,20 +1,41 @@
 # discord-ext-voice-recv
 Voice receive extension package for discord.py
 
-### Warning
+## Warning
 **This extension should be more or less functional, but the code is not yet feature complete.  No guarantees are given for stability or random breaking changes.**
 
 ## Installing
-**Python 3.8 or higher is required**
+**Python 3.8 or higher is required**, preferably 3.11 or whatever is latest
 
-`python -m pip install git+https://github.com/imayhaveborkedit/discord-ext-voice-recv`
+```
+python -m pip install discord-ext-voice-recv
+```
 
-This package will be uploaded to pypi eventually.
+To install directly from github:
+```
+python -m pip install git+https://github.com/imayhaveborkedit/discord-ext-voice-recv
+```
 
-Naturally, this extension depends on `discord.py` being installed with voice support.
+Naturally, this extension depends on `discord.py` being installed with voice support (`pynacl`).
 
 ## Example
 See the [example script](examples/recv.py).
+
+## Feature overview
+### Custom VoiceProtocol client
+No monkey patching or bizarre hacks required.  Simply use the library feature to use `VoiceRecvClient` as the voice client class.  See [Usage](#usage).
+
+### Six new events
+This extension adds the unimplemented voice websocket events and one virtual event.  See [New Events](#new-events).
+
+### Simple and familiar API
+The overall API is designed to mirror the discord.py voice send API, with `AudioSink` being the counterpart to the existing `AudioSource`.  See [Sinks](#sinks).
+
+### Convenient included utilities
+Batteries included in the form of useful built in `AudioSinks`.  Some to match their `AudioSource` counterpart, some I merely considered useful.  See... uh... TODO.
+
+### More or less typed
+Its probably fine.
 
 ## Usage
 ### VoiceRecvClient
@@ -66,7 +87,7 @@ class MySink(voice_recv.AudioSink):
     def wants_opus(self) -> bool:
         return False
 
-    def write(self, user: Optional[User | Member], data: VoiceData):
+    def write(self, user: User | Member | None, data: VoiceData):
         ...
 
     def cleanup(self):
@@ -79,9 +100,22 @@ These are the main functions of a sink, names and purpose reflecting that of the
 - The `write()` function is the main callback, where the sink logic takes place.  In a sink pipeline, this could alter, inspect, or log a packet, and then write it to a child sink.  `VoiceData` is a simple container class with attributes for the origin member, opus data, optionally pcm data, and raw audio packet.
 - The `cleanup()` function is identical to `AudioSource.cleanup()`, a finalizer to cleanup any loose ends when the sink has finished its job.
 
-In addition, sinks also have properties for their `voice_client`, as well as `parent` and `child`/`children` sinks.  Furthermore, sinks will be able to receive events in a similar manner to cogs, but this has not been implemented yet. (TODO)
+Additionally, sinks also have properties for their `voice_client`, as well as `parent` and `child`/`children` sinks.
 
 This extension comes with several useful built in sinks, which I will briefly explain another time.  For now just [source dive](discord/ext/voice_recv/sinks.py).  (TODO)
+
+### Sink event listeners
+With AudioSinks being potentially more complex and stateful than AudioSources and the addition of new events, it is sometimes necessary to handle events in the context of a sink.  It would be rather awkward to have to register a sink function with `commands.Bot.add_listener()` while dealing with thread safety, and even moreso using `discord.Client`.  To remedy this, listeners can be defined within sinks, similarly to how they work in Cogs.
+
+```python
+class MySink(AudioSink):
+    @AudioSink.listener()
+    def on_voice_member_disconnect(self, member: discord.Member, ssrc: int | None):
+        print(f"{member} has disconnected")
+        self.do_something_like_handle_disconnect(ssrc)
+```
+
+Note that these functions must be sync functions, as they are dispatched from a thread.  Trying to use a coroutine will result in an error.  This restriction only applies to sink listeners, and normal async event listeners will function as per usual.  The event listener dispatch thread is different from the one used to dispatch the `write()` callback so potential threadsafety issues should be considered.  A decorator argument to run the event callback in the other thread may be added later.
 
 ## New events
 ```python
@@ -92,7 +126,7 @@ Called when a member first speaks (transmits audio) in a voice channel.  This ev
 This is **NOT** a speaking indicator event.  The speaking indicator is determined by packet activity.  This functionality will be added in the future.
 
 ```python
-async def on_voice_member_disconnect(member: discord.Member, ssrc: int)
+async def on_voice_member_disconnect(member: discord.Member, ssrc: int | None)
 ```
 Called when a member disconnects from a voice channel. The `ssrc` parameter is the unique id a member has to identify which packets belong to them.  This is useful when using custom sinks, particularly those that handle packets from multiple members.
 
@@ -102,17 +136,21 @@ async def on_voice_member_video(member: discord.Member, data: voice_recv.VoiceVi
 Called when a member in voice channel toggles their webcam on or off, NOT screenshare.  Screenshare status is only indicated in the `self_video` attribute of `discord.VoiceState`.
 
 ```python
-async def on_voice_member_flags(member: discord.Member, flags: Optional[int])
+async def on_voice_member_flags(member: discord.Member, flags: int | None)
 ```
 An undocumented event dispatched when a member joins a voice channel containing a flags bitfield.  Only values `0`, `2`, and `None` have been observed so far, but their meaning remains unknown.
 
 ```python
-async def on_voice_member_platform(member: discord.Member, platform: Optional[int | str])
+async def on_voice_member_platform(member: discord.Member, platform: int | str | None)
 ```
 An undocumented event dispatched when a member joins a voice channel containing a platform key, presumably with what platform the member joined on.  However, this field has only ever been seen to contain `None`.
 
+```python
+def on_rtcp_packet(packet: RTCPPacket, guild: discord.Guild)
+```
+A virtual event for when an RTCP packet is received.  This event only works inside of sinks, so it cannot be async.
+
 ## Currently missing features
-- Sink events (similar to cog event handlers)
 - Silence generation (will be implemented as an included AudioSink)
 - Member speaking state status/event (design not yet decided)
 - Various internal impl details to maintain audio stability and consistency
