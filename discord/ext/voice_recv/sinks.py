@@ -120,10 +120,6 @@ class SinkABC(metaclass=SinkMeta):
         """Callback for when the sink receives data"""
         raise NotImplementedError
 
-    def write_rtcp(self, packet: RTCPPacket):
-        """Optional callback for when the sink receives an rtcp packet"""
-        pass
-
     @abc.abstractmethod
     def cleanup(self):
         raise NotImplementedError
@@ -237,8 +233,9 @@ class BasicSink(AudioSink):
     def write(self, user: Optional[User], data: VoiceData):
         self.cb(user, data)
 
-    def write_rtcp(self, data: RTCPPacket):
-        self.cb_rtcp(data) if self.cb_rtcp else None
+    @AudioSink.listener()
+    def on_rtcp_packet(self, packet: RTCPPacket, guild: discord.Guild):
+        self.cb_rtcp(packet) if self.cb_rtcp else None
 
     def cleanup(self):
         pass
@@ -307,9 +304,6 @@ class PCMVolumeTransformer(AudioSink):
         data.pcm = audioop.mul(data.pcm, 2, min(self._volume, 2.0))
         self.destination.write(user, data)
 
-    def write_rtcp(self, packet: RTCPPacket):
-        self.destination.write_rtcp(packet)
-
     def cleanup(self):
         pass
 
@@ -329,9 +323,6 @@ class ConditionalFilter(AudioSink):
     def write(self, user: Optional[User], data: VoiceData):
         if self.predicate(user, data):
             self.destination.write(user, data)
-
-    def write_rtcp(self, packet: RTCPPacket):
-        self.destination.write_rtcp(packet)
 
     def cleanup(self):
         del self.predicate
