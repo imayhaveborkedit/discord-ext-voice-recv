@@ -91,6 +91,8 @@ class SilenceGenerator(threading.Thread):
         """Stops generating silence for everything and clears the cache."""
 
         self._end.set()
+        self._has_data.set()
+
         with self._lock:
             self._ssrc_data.clear()
             self._user_map_backup.clear()
@@ -112,6 +114,8 @@ class SilenceGenerator(threading.Thread):
     def _do_run(self):
         while not self._end.is_set():
             self._has_data.wait()
+            if self._end.is_set():
+                return
 
             with self._lock:
                 tlast, user, packet = self._get_next_info()
