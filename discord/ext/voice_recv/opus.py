@@ -112,13 +112,13 @@ class PacketRouter:
                 self._register_listeners(child)
 
     def _register_listeners(self, sink: AudioSink):
-        log.warning("registering events for %s", self.sink)
-        log.warning("listeners: %s", self.sink.__sink_listeners__)
+        log.debug("registering events for %s", self.sink)
+        log.debug("listeners: %s", self.sink.__sink_listeners__)
 
         for name, method_name in sink.__sink_listeners__:
             func = getattr(sink, method_name)
 
-            log.warning("Registering %s for %s", name, method_name)
+            log.debug("Registering %s for %s", name, method_name)
             if name in self._event_listeners:
                 self._event_listeners[name].append(func)
             else:
