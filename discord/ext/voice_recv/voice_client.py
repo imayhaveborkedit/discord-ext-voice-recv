@@ -151,6 +151,7 @@ class VoiceRecvClient(discord.VoiceClient):
         """Stops receiving audio."""
         if self._reader:
             self._reader.stop()
+            self._reader.join(5)
             self._reader = None
 
     def stop_playing(self):

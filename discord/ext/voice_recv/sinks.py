@@ -10,6 +10,7 @@ import audioop
 import logging
 
 from .opus import VoiceData
+from .silence import SilenceGenerator
 
 import discord
 
@@ -44,6 +45,7 @@ __all__ = [
     'ConditionalFilter',
     'TimedFilter',
     'UserFilter',
+    'SilenceGeneratorSink',
 ]
 
 # TODO: use this in more places
@@ -340,6 +342,8 @@ class UserFilter(ConditionalFilter):
 
 
 class TimedFilter(ConditionalFilter):
+    """A convenience class for a timed ConditionalFilter."""
+
     def __init__(self,
         destination: AudioSink,
         duration: int | float,
@@ -368,3 +372,29 @@ class TimedFilter(ConditionalFilter):
         Can be overridden.
         """
         return time.perf_counter()
+
+
+class SilenceGeneratorSink(AudioSink):
+    """Generates intermittent silence packets during transmission downtime."""
+
+    def __init__(self, destination: AudioSink):
+        super().__init__(destination)
+
+        self.destination = destination
+        self.silencegen = SilenceGenerator(self.destination.write)
+        self.silencegen.start()
+
+    def wants_opus(self) -> bool:
+        return self.destination.wants_opus()
+
+    def write(self, user: Optional[User], data: VoiceData):
+        self.silencegen.push(user, data.packet)
+        self.destination.write(user, data)
+
+    @AudioSink.listener()
+    def on_voice_member_disconnect(self, member: discord.Member, ssrc: int | None):
+        self.silencegen.drop(ssrc=ssrc, user=member)
+
+    def cleanup(self):
+        self.silencegen.stop()
+

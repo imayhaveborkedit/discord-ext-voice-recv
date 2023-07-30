@@ -40,6 +40,8 @@ __all__ = [
 class VoiceData:
     """docstring for VoiceData"""
 
+    __slots__ = ('packet', 'source', 'pcm')
+
     def __init__(self,
         packet: Packet,
         source: Optional[User],

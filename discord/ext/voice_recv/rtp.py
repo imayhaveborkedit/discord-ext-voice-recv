@@ -82,20 +82,6 @@ class _PacketCmpMixin:
         data = getattr(self, 'decrypted_data', None)
         return data == OPUS_SILENCE
 
-class SilencePacket(_PacketCmpMixin):
-    __slots__ = ('ssrc', 'timestamp')
-    decrypted_data: Literal[OpusSilence] = OPUS_SILENCE
-    extension_data: dict = {}
-
-    def __init__(self, ssrc: int, timestamp: int):
-        self.ssrc = ssrc
-        self.timestamp = timestamp
-
-    def __repr__(self):
-        return '<SilencePacket ssrc={0.ssrc}, timestamp={0.timestamp}>'.format(self)
-
-    def is_silence(self) -> bool:
-        return True
 
 class FakePacket(_PacketCmpMixin):
     __slots__ = ('ssrc', 'sequence', 'timestamp')
@@ -113,7 +99,23 @@ class FakePacket(_PacketCmpMixin):
     def __bool__(self) -> Literal[False]:
         return False
 
-# Consider adding silence attribute to differentiate (to skip isinstance)
+
+class SilencePacket(FakePacket):
+    __slots__ = ('ssrc', 'timestamp')
+    decrypted_data: Literal[OpusSilence] = OPUS_SILENCE
+    extension_data: dict = {}
+    sequence: int = -1
+
+    def __init__(self, ssrc: int, timestamp: int):
+        self.ssrc = ssrc
+        self.timestamp = timestamp
+
+    def __repr__(self):
+        return '<SilencePacket ssrc={0.ssrc}, timestamp={0.timestamp}>'.format(self)
+
+    def is_silence(self) -> bool:
+        return True
+
 
 class RTPPacket(_PacketCmpMixin):
     __slots__ = ('version', 'padding', 'extended', 'cc', 'marker', 'payload',
