@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 
-from typing import TYPE_CHECKING
+from discord.enums import SpeakingState
 
 from .video import VoiceVideoStreams
 
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from discord.gateway import DiscordVoiceWebSocket
     from .voice_client import VoiceRecvClient
@@ -55,12 +56,13 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
             vc._reader.update_secret_box()
 
     elif op == self.SPEAKING:
-        # SPEAKING is not actually speaking anymore but it still has the ssrc
+        # this event refers to the speaking MODE, e.g. priority speaker
         uid = int(data['user_id'])
         ssrc = data['ssrc']
+        state = SpeakingState.try_value(data['speaking']) # type: ignore
         vc._add_ssrc(uid, ssrc)
         member = vc.guild.get_member(uid)
-        vc.dispatch("voice_member_speak", member, ssrc)
+        vc.dispatch("voice_member_speaking_state", member, ssrc, state)
 
     # aka VIDEO
     elif op == self.CLIENT_CONNECT:
@@ -81,6 +83,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
         vc._remove_ssrc(user_id=uid)
         member = vc.guild.get_member(uid)
         vc.dispatch("voice_member_disconnect", member, ssrc)
+        vc._speaking_cache.pop(ssrc, None) # type: ignore
 
     elif op == FLAGS:
         uid = int(data['user_id'])

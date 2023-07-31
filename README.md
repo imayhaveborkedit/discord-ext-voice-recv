@@ -28,6 +28,9 @@ No monkey patching or bizarre hacks required.  Simply use the library feature to
 ### Six new events
 This extension adds the unimplemented voice websocket events and one virtual event.  See [New Events](#new-events).
 
+### Speaking state
+It is now possible to determine if a member is speaking or not, using `VoiceRecvClient.get_speaking()`.  An event for changes is on the todo list as a maybe.
+
 ### Simple and familiar API
 The overall API is designed to mirror the discord.py voice send API, with `AudioSink` being the counterpart to the existing `AudioSource`.  See [Sinks](#sinks).
 
@@ -71,6 +74,11 @@ Stops receiving audio.
 def stop_playing() -> None
 ```
 Stops playing audio.  This function is identical to `discord.VoiceClient.stop()`.
+
+```python
+def get_speaking(member: discord.Member | discord.User) -> bool | None
+```
+Gets the speaking state (voice activity, the green circle) of a member.  User is typed in for convenience.  Returns None if the member was not found.
 
 ## Sinks
 The api of this extension is designed to mirror the discord.py voice send api.  Sending audio uses the `AudioSource` class, while receiving audio uses the `AudioSink` class.  A sink is designed to be the inverse of a source.  Essentially, a source is a callback called by discord.py to produce a chunk of audio data.  Conversely, a sink is a callback called by the library to handle a chunk of audio.  Sinks can be composed in the same fashion as sources, creating an audio processing pipeline.  Sources and sinks can even combined into one object to handle both tasks, such as creating a feedback loop.
@@ -119,11 +127,14 @@ Note that these functions must be sync functions, as they are dispatched from a 
 
 ## New events
 ```python
-async def on_voice_member_speak(member: discord.Member, ssrc: int)
+async def on_voice_member_speaking_state(member: discord.Member, ssrc: int, state: SpeakingState | int)
 ```
-Called when a member first speaks (transmits audio) in a voice channel.  This event is only called once per their voice session (ssrc assignment).  Any packets received from this member before this event fires can (probably) be safely ignored since they are likely just silence packets.  The main purpose of this event is to reveal the ssrc of a member, to map packets to their originating member.
+First and foremost, this event does **NOT** refer to the speaking indicator in discord (the green circle).  For voice activity, see `...TODO...`.
+This event is fired when the speaking state of a member changes.  This happens when:
+- A member first speaks (transmits audio) in a voice, but only once
+- A member activates or deactivates priority speaker mode
 
-This is **NOT** a speaking indicator event.  The speaking indicator is determined by packet activity.  This functionality will be added in the future.
+This event is fired once initially to reveal the ssrc of a member, an identifier to map packets to their originating member.  Any packets received from this member before this event fires can (probably) be safely ignored since they are likely just silence packets.
 
 ```python
 async def on_voice_member_disconnect(member: discord.Member, ssrc: int | None)

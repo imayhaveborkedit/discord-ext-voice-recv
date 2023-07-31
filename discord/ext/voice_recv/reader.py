@@ -239,6 +239,7 @@ class AudioReader(_ReaderBase):
             if rtcp:
                 self.router.feed_rtcp(packet) # type: ignore
             else:
+                self.client._speaking_cache[packet.ssrc] = time.time()
                 self.router.feed_rtp(packet) # type: ignore
 
     def is_listening(self):

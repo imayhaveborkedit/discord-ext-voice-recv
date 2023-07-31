@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import asyncio
 import logging
 import threading
@@ -37,7 +38,8 @@ class VoiceRecvClient(discord.VoiceClient):
         self._reader: Optional[AudioReader] = None
         self._ssrc_to_id: Dict[int, int] = {}
         self._id_to_ssrc: Dict[int, int] = {}
-        self._event_listeners: dict[str, list] = {}
+        self._event_listeners: Dict[str, list] = {}
+        self._speaking_cache: Dict[int, float] = {}
 
     async def connect_websocket(self):
         ws = await DiscordVoiceWebSocket.from_client(self, hook=hook)
@@ -178,3 +180,16 @@ class VoiceRecvClient(discord.VoiceClient):
             raise ValueError('Not receiving anything.')
 
         self._reader.set_sink(sink)
+
+    def get_speaking(self, member: discord.Member | discord.User) -> Optional[bool]:
+        """Returns if a member is speaking (approximately), or None if not found."""
+
+        ssrc = self._get_ssrc_from_id(member.id)
+        if ssrc is None:
+            return
+
+        last_packet_time = self._speaking_cache.get(ssrc, None)
+        if last_packet_time is None:
+            return
+
+        return time.time() - last_packet_time < 0.02
