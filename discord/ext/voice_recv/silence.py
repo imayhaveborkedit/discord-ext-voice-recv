@@ -15,14 +15,12 @@ from discord.opus import Decoder
 from typing import TYPE_CHECKING, Tuple
 
 if TYPE_CHECKING:
-    from typing import Callable, Any, Dict, Optional, Final
-    from .rtp import RTPPacket, FakePacket
-    import discord
+    from typing import Callable, Any, Dict, Optional, Final, Union
+    from .rtp import AudioPacket
+    from .types import MemberOrUser as User
 
-    User = discord.User | discord.Member
-    Packet = RTPPacket | FakePacket
     SilenceGenFN = Callable[[Optional[User], VoiceData], Any]
-    SSRCData = Tuple[float, Optional[User], Packet]
+    SSRCData = Tuple[float, Optional[User], AudioPacket]
 
 log = logging.getLogger(__name__)
 
@@ -37,19 +35,19 @@ PACKET_INTERVAL: Final = 0.02
 class SilenceGenerator(threading.Thread):
     """Generates and sends silence packets."""
 
-    def __init__(self, callback: SilenceGenFN, *, grace_period=0.015):
+    def __init__(self, callback: SilenceGenFN, *, grace_period: float = 0.015):
         super().__init__(daemon=True, name=f'silencegen-{id(self):x}')
         self.callback: SilenceGenFN = callback
-        self.grace_period = grace_period
+        self.grace_period: float = grace_period
 
         self._ssrc_data: Dict[int, SSRCData] = {}  # {ssrc: (time, _, _)}
         self._last_timestamp: Dict[int, int] = {}  # {ssrc: timestamp}
         self._user_map_backup: Dict[int, int] = {}  # {id: ssrc}
-        self._end = threading.Event()
-        self._has_data = threading.Event()
-        self._lock = threading.Lock()
+        self._end: threading.Event = threading.Event()
+        self._has_data: threading.Event = threading.Event()
+        self._lock: threading.Lock = threading.Lock()
 
-    def push(self, user: Optional[User], packet: Packet):
+    def push(self, user: Optional[User], packet: AudioPacket) -> None:
         """Updates the last time a packet was received and from whom.
         Calling this function will start generating silence packets for `packet.ssrc`
         until `drop(ssrc)` or `stop()` is called.
@@ -67,7 +65,7 @@ class SilenceGenerator(threading.Thread):
     def _get_next_info(self) -> SSRCData:
         return min(self._ssrc_data.values())
 
-    def drop(self, *, ssrc: Optional[int] = None, user: User = MISSING):
+    def drop(self, *, ssrc: Optional[int] = None, user: User = MISSING) -> None:
         """Stop generating silence packets for `ssrc`, or whatever is cached for `user`
         if `ssrc` is None, if any.
         """
@@ -87,7 +85,7 @@ class SilenceGenerator(threading.Thread):
             if not self._ssrc_data:
                 self._has_data.clear()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stops generating silence for everything and clears the cache."""
 
         self._end.set()
@@ -101,17 +99,17 @@ class SilenceGenerator(threading.Thread):
 
         self.join(1)
 
-    def start(self):
+    def start(self) -> None:
         self._end.clear()
         super().start()
 
-    def run(self):
+    def run(self) -> None:
         try:
             self._do_run()
         except Exception as e:
             log.exception("Error in %s", self)
 
-    def _do_run(self):
+    def _do_run(self) -> None:
         while not self._end.is_set():
             self._has_data.wait()
             if self._end.is_set():

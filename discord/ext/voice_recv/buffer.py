@@ -8,7 +8,7 @@ import threading
 from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
-    from typing import Literal
+    from typing import Literal, Optional, List
     from .rtp import RTPPacket
 
 __all__ = [
@@ -26,35 +26,36 @@ class HeapJitterBuffer:
         if not 0 <= prefsize <= maxsize:
             raise ValueError(f'prefsize must be between 0 and maxsize ({maxsize})')
 
-        self.maxsize = maxsize
-        self.prefsize = prefsize
-        self.prefill = self._prefill = prefill
+        self.maxsize: int = maxsize
+        self.prefsize: int = prefsize
+        self.prefill: int = prefill
+        self._prefill: int = prefill
 
         self._last_rx: int = 0
         self._last_tx: int = 0
         self._generation: int = 0
         self._generation_ts: int = 0
 
-        self._has_item = threading.Event()
+        self._has_item: threading.Event = threading.Event()
         # I sure hope I dont need to add a lock to this
-        self._buffer: list[tuple[int, RTPPacket]] = []
+        self._buffer: List[tuple[int, RTPPacket]] = []
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._buffer)
 
-    def _push(self, packet: RTPPacket, seq: int):
+    def _push(self, packet: RTPPacket, seq: int) -> None:
         heapq.heappush(self._buffer, (seq, packet))
 
     def _pop(self) -> RTPPacket:
         return heapq.heappop(self._buffer)[1]
 
-    def _get_packet_if_ready(self) -> RTPPacket | None:
+    def _get_packet_if_ready(self) -> Optional[RTPPacket]:
         return self._buffer[0][1] if len(self._buffer) > self.prefsize else None
 
-    def _pop_if_ready(self) -> RTPPacket | None:
+    def _pop_if_ready(self) -> Optional[RTPPacket]:
         return self._pop() if len(self._buffer) > self.prefsize else None
 
-    def _update_has_item(self):
+    def _update_has_item(self) -> None:
         prefilled = self._prefill == 0
         packet_ready = len(self._buffer) > self.prefsize
 
@@ -73,7 +74,7 @@ class HeapJitterBuffer:
         else:
             self._has_item.clear()
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         while len(self._buffer) > self.maxsize:
             heapq.heappop(self._buffer)
 
@@ -114,11 +115,11 @@ class HeapJitterBuffer:
         return True
 
     @overload
-    def pop(self, *, timeout: float = 1.0) -> RTPPacket | None:
+    def pop(self, *, timeout: float = 1.0) -> Optional[RTPPacket]:
         ...
 
     @overload
-    def pop(self, *, timeout: Literal[0]) -> RTPPacket | None:
+    def pop(self, *, timeout: Literal[0]) -> Optional[RTPPacket]:
         ...
 
     def pop(self, *, timeout=1.0):
@@ -143,7 +144,7 @@ class HeapJitterBuffer:
         self._update_has_item()
         return packet
 
-    def peek(self, *, all: bool = False) -> RTPPacket | None:
+    def peek(self, *, all: bool = False) -> Optional[RTPPacket]:
         """
         Returns the next packet in the buffer only if it is ready, meaning it can
         be popped. When `all` is set to True, it returns the next packet, if any.
@@ -157,7 +158,7 @@ class HeapJitterBuffer:
         else:
             return self._get_packet_if_ready()
 
-    def peek_next(self) -> RTPPacket | None:
+    def peek_next(self) -> Optional[RTPPacket]:
         """
         Returns the next packet in the buffer only if it is sequential.
         """
@@ -178,7 +179,7 @@ class HeapJitterBuffer:
 
         return 0
 
-    def flush(self) -> list[RTPPacket]:
+    def flush(self) -> List[RTPPacket]:
         """
         Return all remaining packets.
         """
@@ -195,7 +196,7 @@ class HeapJitterBuffer:
 
         return packets
 
-    def reset(self):
+    def reset(self) -> None:
         """
         Clear buffer and reset internal counters.
         """

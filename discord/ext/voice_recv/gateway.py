@@ -11,6 +11,8 @@ from .video import VoiceVideoStreams
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from typing import Dict, Any
+
     from discord.gateway import DiscordVoiceWebSocket
     from .voice_client import VoiceRecvClient
 
@@ -42,9 +44,9 @@ PLATFORM                  = 20 # (unpopulated)
 # fmt: on
 
 
-async def hook(self: DiscordVoiceWebSocket, msg: dict):
+async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
     op: int = msg['op']
-    data: dict = msg.get('d')  # type: ignore
+    data: Dict[str, Any] = msg.get('d', {})
     vc: VoiceRecvClient = self._connection.voice_client  # type: ignore
 
     from pprint import pformat

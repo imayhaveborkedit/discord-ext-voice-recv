@@ -10,22 +10,18 @@ import threading
 from typing import TYPE_CHECKING
 
 from .buffer import HeapJitterBuffer as JitterBuffer
-from .rtp import *
+from .rtp import FakePacket
 
 import discord
 
 from discord.opus import Decoder
 
 if TYPE_CHECKING:
-    from typing import Optional, Tuple, Dict, Callable, Any
-    from queue import SimpleQueue
+    from typing import Optional, Tuple, Dict, List, Callable, Any, Union
+    from .rtp import RTPPacket, RTCPPacket, AudioPacket
     from .sinks import AudioSink
     from .voice_client import VoiceRecvClient
-
-    AudioPacket = RTPPacket | FakePacket
-    # Packet = AudioPacket | SilencePacket
-    Packet = AudioPacket
-    User = discord.User | discord.Member
+    from .types import MemberOrUser as User
 
     EventCB = Callable[..., Any]
     EventData = Tuple[str, Tuple[Any, ...], Dict[str, Any]]
@@ -42,9 +38,9 @@ class VoiceData:
 
     __slots__ = ('packet', 'source', 'pcm')
 
-    def __init__(self, packet: Packet, source: Optional[User], *, pcm: Optional[bytes] = None):
-        self.packet = packet
-        self.source = source
+    def __init__(self, packet: AudioPacket, source: Optional[User], *, pcm: Optional[bytes] = None):
+        self.packet: AudioPacket = packet
+        self.source: Optional[User] = source
         self.pcm: bytes = pcm if pcm else b''
 
     @property
@@ -53,20 +49,19 @@ class VoiceData:
 
 
 class PacketRouter:
-    """docstring for PacketRouter"""
-
     def __init__(self, sink: AudioSink):
-        self.sink = sink
+        self.sink: AudioSink = sink
         self.decoders: Dict[int, PacketDecoder] = {}
 
-        self._event_listeners: dict[str, list[EventCB]] = {}
-        self._event_buffer: SimpleQueue[EventData] = queue.SimpleQueue()
+        self._event_listeners: Dict[str, List[EventCB]] = {}
+        self._event_buffer: queue.SimpleQueue[EventData] = queue.SimpleQueue()
         self._lock = threading.RLock()
         self._end_writer = threading.Event()
 
-        self._event_writer = threading.Thread(target=self._event_loop, daemon=True, name=f"event-writer-{id(self):x}")
+        self._event_writer: threading.Thread = threading.Thread(
+            target=self._event_loop, daemon=True, name=f"event-writer-{id(self):x}"
+        )
         self._event_writer.start()
-
         self.register_events()
 
     def _get_decoder(self, ssrc: int) -> PacketDecoder:
@@ -78,15 +73,15 @@ class PacketRouter:
 
         return decoder
 
-    def feed_rtp(self, packet: RTPPacket):
+    def feed_rtp(self, packet: RTPPacket) -> None:
         decoder = self._get_decoder(packet.ssrc)
         decoder.feed_rtp(packet)
 
-    def feed_rtcp(self, packet: RTCPPacket):
+    def feed_rtcp(self, packet: RTCPPacket) -> None:
         guild = self.sink.voice_client.guild if self.sink.voice_client else None
         self.dispatch('rtcp_packet', packet, guild)
 
-    def _event_loop(self):
+    def _event_loop(self) -> None:
         while not self._end_writer.is_set():
             try:
                 event, args, kwargs = self._event_buffer.get(timeout=0.5)
@@ -96,13 +91,13 @@ class PacketRouter:
                 with self._lock:
                     self._dispatch_to_listeners(event, *args, **kwargs)
 
-    def register_events(self):
+    def register_events(self) -> None:
         with self._lock:
             self._register_listeners(self.sink)
             for child in self.sink.walk_children():
                 self._register_listeners(child)
 
-    def _register_listeners(self, sink: AudioSink):
+    def _register_listeners(self, sink: AudioSink) -> None:
         log.debug("registering events for %s", sink)
         log.debug("listeners: %s", sink.__sink_listeners__)
 
@@ -115,7 +110,7 @@ class PacketRouter:
             else:
                 self._event_listeners[name] = [func]
 
-    def unregister_events(self):
+    def unregister_events(self) -> None:
         with self._lock:
             self._unregister_listeners(self.sink)
             for child in self.sink.walk_children():
@@ -131,7 +126,7 @@ class PacketRouter:
                 except ValueError:
                     pass
 
-    def set_sink(self, sink: AudioSink):
+    def set_sink(self, sink: AudioSink) -> None:
         with self._lock:
             self.unregister_events()
             self.sink = sink
@@ -141,20 +136,20 @@ class PacketRouter:
 
             self.register_events()
 
-    def notify(self, ssrc: int, user_id: int):
+    def notify(self, ssrc: int, user_id: int) -> None:
         decoder = self.decoders.get(ssrc, None)
 
         if decoder is not None:
             decoder.notify(user_id)
 
-    def dispatch(self, event: str, *args: Any, **kwargs: Any):
+    def dispatch(self, event: str, *args: Any, **kwargs: Any) -> None:
         self._event_buffer.put_nowait((event, args, kwargs))
 
-    def _dispatch_to_listeners(self, event: str, *args: Any, **kwargs: Any):
+    def _dispatch_to_listeners(self, event: str, *args: Any, **kwargs: Any) -> None:
         for listener in self._event_listeners.get(f'on_{event}', []):
             listener(*args, **kwargs)
 
-    def destroy_decoder(self, ssrc: int):
+    def destroy_decoder(self, ssrc: int) -> None:
         with self._lock:
             decoder = self.decoders.pop(ssrc, None)
 
@@ -162,7 +157,7 @@ class PacketRouter:
                 decoder.flush()
                 decoder.stop()
 
-    def destroy_all_decoders(self):
+    def destroy_all_decoders(self) -> None:
         with self._lock:
             for ssrc in list(self.decoders.keys()):
                 self.destroy_decoder(ssrc)
@@ -191,7 +186,7 @@ class PacketRouter:
     #         for decoder in self.decoders.values():
     #             decoder.reset()
 
-    def stop(self):
+    def stop(self) -> None:
         with self._lock:
             self._end_writer.set()
             self.destroy_all_decoders()
@@ -203,8 +198,8 @@ class PacketDecoder(threading.Thread):
     def __init__(self, sink: AudioSink, ssrc: int):
         super().__init__(daemon=True, name=f'decoder-ssrc-{ssrc}')
 
-        self.sink = sink
-        self.ssrc = ssrc
+        self.sink: AudioSink = sink
+        self.ssrc: int = ssrc
 
         self._decoder: Optional[Decoder] = None if sink.wants_opus() else Decoder()
         self._buffer: JitterBuffer = JitterBuffer()
@@ -213,8 +208,8 @@ class PacketDecoder(threading.Thread):
         self._last_ts: int = 0
         self._last_seq: int = 0
 
-        self._end_thread = threading.Event()
-        self._lock = threading.Lock()
+        self._end_thread: threading.Event = threading.Event()
+        self._lock: threading.Lock = threading.Lock()
 
         self.start()  # no way this causes any problems haha
 
@@ -225,7 +220,7 @@ class PacketDecoder(threading.Thread):
     def _get_cached_member(self) -> Optional[User]:
         return self._get_user(self._cached_id) if self._cached_id else None
 
-    def feed_rtp(self, packet: RTPPacket):
+    def feed_rtp(self, packet: RTPPacket) -> None:
         if self._end_thread.is_set():
             log.warning("New packets after thread end in %s")
             return
@@ -236,7 +231,7 @@ class PacketDecoder(threading.Thread):
 
         self._buffer.push(packet)
 
-    def flush(self):
+    def flush(self) -> None:
         with self._lock:
             # This looks really stupid but we need to do this because
             # the decode function uses buffer functions
@@ -267,7 +262,7 @@ class PacketDecoder(threading.Thread):
     #         self._decoder = None if self.sink.wants_opus() else Decoder()
     #         self._last_seq = self._last_ts = 0
 
-    def set_sink(self, sink: AudioSink):
+    def set_sink(self, sink: AudioSink) -> None:
         with self._lock:
             self.sink = sink
             # do i need to (or should i) reset the decoder?
@@ -275,10 +270,10 @@ class PacketDecoder(threading.Thread):
                 log.debug("Resetting Decoder for %s", self)
                 self._decoder = Decoder()
 
-    def notify(self, user_id: int):
+    def notify(self, user_id: int) -> None:
         self._cached_id = user_id
 
-    def _get_next_packet(self, timeout: float = 0.1) -> Packet | None:
+    def _get_next_packet(self, timeout: float = 0.1) -> Optional[AudioPacket]:
         packet = self._buffer.pop(timeout=timeout)
 
         if packet is None:
@@ -294,7 +289,7 @@ class PacketDecoder(threading.Thread):
         ts = self._last_ts + Decoder.SAMPLES_PER_FRAME
         return FakePacket(self.ssrc, seq, ts)
 
-    def _handle_decode(self, packet: Packet) -> Tuple[Packet, bytes]:
+    def _handle_decode(self, packet: AudioPacket) -> Tuple[AudioPacket, bytes]:
         assert self._decoder is not None
 
         # Decode as per usual
@@ -322,7 +317,7 @@ class PacketDecoder(threading.Thread):
 
         return packet, pcm
 
-    def _process_packet(self, packet: Packet):
+    def _process_packet(self, packet: AudioPacket) -> None:
         pcm = None
         if not self.sink.wants_opus():
             packet, pcm = self._handle_decode(packet)
@@ -339,7 +334,7 @@ class PacketDecoder(threading.Thread):
         self._last_seq = packet.sequence
         self._last_ts = packet.timestamp
 
-    def _do_run(self):
+    def _do_run(self) -> None:
         while not self._end_thread.is_set():
             packet = self._get_next_packet()
 
@@ -349,20 +344,20 @@ class PacketDecoder(threading.Thread):
             with self._lock:
                 self._process_packet(packet)
 
-    def run(self):
+    def run(self) -> None:
         try:
             self._do_run()
         except Exception:
             log.exception("Error in %s", self.name)
 
-    def stop(self, *, wait: Optional[float] = None):
+    def stop(self, *, wait: Optional[float] = None) -> None:
         self._end_thread.set()
         self.join(wait)  # is this necesary, useful even?
 
 
 class _BufferProxy:
-    def __init__(self, contents: list[RTPPacket]):
-        self._buffer: list[RTPPacket | None] = []
+    def __init__(self, contents: List[RTPPacket]):
+        self._buffer: List[Union[RTPPacket, None]] = []
 
         if contents:
             self._buffer.append(contents.pop(0))
@@ -376,30 +371,30 @@ class _BufferProxy:
 
             self._buffer.append(packet)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._buffer)
 
-    def pop(self, *, timeout=0.1) -> RTPPacket | None:
+    def pop(self, *, timeout: float = 0.1) -> Optional[RTPPacket]:
         if self._buffer:
             return self._buffer.pop(0)
 
-    def peek_next(self) -> RTPPacket | None:
+    def peek_next(self) -> Optional[RTPPacket]:
         if self._buffer:
             return self._buffer[0]
 
-    def peek(self, **_):
+    def peek(self, **_) -> Optional[RTPPacket]:
         return self.peek_next()
 
-    def push(self, packet):
+    def push(self, packet: RTPPacket) -> None:
         return
 
-    def gap(self):
+    def gap(self) -> int:
         return 0
 
-    def flush(self):
+    def flush(self) -> List[RTPPacket]:
         return []
 
-    def reset(self):
+    def reset(self) -> None:
         return
 
 

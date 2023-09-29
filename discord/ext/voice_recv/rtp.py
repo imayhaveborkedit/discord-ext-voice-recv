@@ -11,26 +11,36 @@ from collections import namedtuple
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Optional, Literal
+    from typing import Optional, Literal, Union, Final, Dict, Any, Tuple, List
 
-    OpusSilence = Literal[b'\xF8\xFF\xFE']
+    AudioPacket = Union['RTPPacket', 'FakePacket']
+    RealPacket = Union['RTPPacket', 'RTCPPacket']
+    Packet = Union[RealPacket, 'FakePacket']
+
+    PacketTypes = Union[
+        'SenderReportPacket',
+        'ReceiverReportPacket',
+        'SDESPacket',
+        'BYEPacket',
+        'APPPacket',
+    ]
 
 log = logging.getLogger(__name__)
 
 __all__ = [
     'RTPPacket',
     'RTCPPacket',
+    'FakePacket',
     'SilencePacket',
     'ExtensionID',
-    'FakePacket',
 ]
 
-OPUS_SILENCE: OpusSilence = b'\xF8\xFF\xFE'
+OPUS_SILENCE: Final = b'\xF8\xFF\xFE'
 
 
 class ExtensionID:
-    audio_power: Literal[1] = 1
-    speaking_state: Literal[9] = 9
+    audio_power: Final = 1
+    speaking_state: Final = 9
 
 
 def decode(data: bytes) -> RTPPacket | RTCPPacket:
@@ -66,17 +76,17 @@ def _into_low(x: float, bitlen: int = 32) -> int:
 class _PacketCmpMixin:
     __slots__ = ('ssrc', 'timestamp')
 
-    def __lt__(self, other):
+    def __lt__(self, other: _PacketCmpMixin) -> bool:
         if self.ssrc != other.ssrc:
             raise TypeError("packet ssrc mismatch (%s, %s)" % (self.ssrc, other.ssrc))
         return self.timestamp < other.timestamp
 
-    def __gt__(self, other):
+    def __gt__(self, other: _PacketCmpMixin) -> bool:
         if self.ssrc != other.ssrc:
             raise TypeError("packet ssrc mismatch (%s, %s)" % (self.ssrc, other.ssrc))
         return self.timestamp > other.timestamp
 
-    def __eq__(self, other):
+    def __eq__(self, other: _PacketCmpMixin) -> bool:
         if self.ssrc != other.ssrc:
             return False
         return self.timestamp == other.timestamp
@@ -92,11 +102,11 @@ class FakePacket(_PacketCmpMixin):
     extension_data: dict = {}
 
     def __init__(self, ssrc: int, sequence: int, timestamp: int):
-        self.ssrc = ssrc
-        self.sequence = sequence
-        self.timestamp = timestamp
+        self.ssrc: int = ssrc
+        self.sequence: int = sequence
+        self.timestamp: int = timestamp
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<FakePacket ssrc={0.ssrc}, sequence={0.sequence}, timestamp={0.timestamp}>'.format(self)
 
     def __bool__(self) -> Literal[False]:
@@ -105,15 +115,15 @@ class FakePacket(_PacketCmpMixin):
 
 class SilencePacket(FakePacket):
     __slots__ = ('ssrc', 'timestamp')
-    decrypted_data: Literal[OpusSilence] = OPUS_SILENCE
-    extension_data: dict = {}
+    decrypted_data: Final = OPUS_SILENCE
+    extension_data: Final[Dict[int, Any]] = {}
     sequence: int = -1
 
     def __init__(self, ssrc: int, timestamp: int):
-        self.ssrc = ssrc
-        self.timestamp = timestamp
+        self.ssrc: int = ssrc
+        self.timestamp: int = timestamp
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<SilencePacket ssrc={0.ssrc}, timestamp={0.timestamp}>'.format(self)
 
     def is_silence(self) -> bool:
@@ -142,17 +152,17 @@ class RTPPacket(_PacketCmpMixin):
     _hstruct = struct.Struct('>xxHII')
     _ext_header = namedtuple("Extension", 'profile length values')
 
-    def __init__(self, data):
+    def __init__(self, data: bytes):
         data = bytearray(data)
 
         # fmt: off
-        self.version  =      data[0] >> 6
-        self.padding  = bool(data[0] & 0b00100000)
-        self.extended = bool(data[0] & 0b00010000)
-        self.cc       =      data[0] & 0b00001111
+        self.version: int   =      data[0] >> 6
+        self.padding: bool  = bool(data[0] & 0b00100000)
+        self.extended: bool = bool(data[0] & 0b00010000)
+        self.cc: int        =      data[0] & 0b00001111
 
-        self.marker   = bool(data[1] & 0b10000000)
-        self.payload  =      data[1] & 0b01111111
+        self.marker: bool   = bool(data[1] & 0b10000000)
+        self.payload: int   =      data[1] & 0b01111111
         # fmt: on
 
         sequence, timestamp, ssrc = self._hstruct.unpack_from(data)
@@ -160,9 +170,9 @@ class RTPPacket(_PacketCmpMixin):
         self.timestamp: int = timestamp
         self.ssrc: int = ssrc
 
-        self.csrcs = ()
+        self.csrcs: Tuple[int, ...] = ()
         self.extension = None
-        self.extension_data = {}
+        self.extension_data: Dict[int, bytes] = {}
 
         self.header = data[:12]
         self.data = data[12:]
@@ -176,11 +186,11 @@ class RTPPacket(_PacketCmpMixin):
 
         # TODO?: impl padding calculations (though discord doesn't seem to use that bit)
 
-    def update_ext_headers(self, data):
+    def update_ext_headers(self, data: bytes) -> int:
         """Adds extended header data to this packet, returns payload offset"""
 
         if not self.extended:
-            return
+            return -1
 
         # data is the decrypted packet payload containing the extension header and opus data
         profile, length = struct.unpack_from('>2sH', data)
@@ -194,7 +204,7 @@ class RTPPacket(_PacketCmpMixin):
         return 4 + length * 4
 
     # https://www.rfcreader.com/#rfc5285_line186
-    def _parse_bede_header(self, data, length):
+    def _parse_bede_header(self, data: bytes, length: int) -> None:
         offset = 4
         n = 0
 
@@ -214,11 +224,11 @@ class RTPPacket(_PacketCmpMixin):
             offset += 1 + element_len
             n += 1
 
-    def _dump_info(self):
+    def _dump_info(self) -> str:
         attrs = {name: getattr(self, name) for name in self.__slots__}
         return ''.join(("<RTPPacket ", *['{}={}, '.format(n, v) for n, v in attrs.items()], '>'))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             '<RTPPacket '
             'ssrc={0.ssrc}, '
@@ -237,19 +247,20 @@ class RTCPPacket(_PacketCmpMixin):
     _ssrc_fmt = struct.Struct('>I')
     type = None
 
-    def __init__(self, data):
+    def __init__(self, data: bytes):
+        self.length: int
         head, _, self.length = self._header.unpack_from(data)
-        self.version = head >> 6
-        self.padding = bool(head & 0b00100000)
+        self.version: int = head >> 6
+        self.padding: bool = bool(head & 0b00100000)
         # dubious, yet devious
         setattr(self, self.__slots__[0], head & 0b00011111)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         content = ', '.join("{}: {}".format(k, getattr(self, k, None)) for k in self.__slots__)
         return "<{} {}>".format(self.__class__.__name__, content)
 
     @classmethod
-    def from_data(cls, data):
+    def from_data(cls, data: bytes) -> PacketTypes:
         _, ptype, _ = cls._header.unpack_from(data)
         return _rtcp_map[ptype](data)
 
@@ -300,9 +311,11 @@ class ReceiverReportPacket(RTCPPacket):
     _report = namedtuple("RReport", 'ssrc perc_loss total_lost last_seq jitter lsr dlsr')
     type = 201
 
-    def __init__(self, data):
+    reports: Tuple[_report, ...]
+
+    def __init__(self, data: bytes):
         super().__init__(data)
-        self.ssrc = self._ssrc_fmt.unpack_from(data, 4)[0]
+        self.ssrc: int = self._ssrc_fmt.unpack_from(data, 4)[0]
 
         reports = []
         for x in range(self.report_count):
@@ -311,11 +324,11 @@ class ReceiverReportPacket(RTCPPacket):
 
         self.reports = tuple(reports)
 
-        self.extension = None
+        self.extension: Optional[bytes] = None
         if len(data) > 8 + 24 * self.report_count:
             self.extension = data[8 + 24 * self.report_count :]
 
-    def _read_report(self, data, offset):
+    def _read_report(self, data: bytes, offset: int) -> _report:
         ssrc, flost, seq, jit, lsr, dlsr = self._report_fmt.unpack_from(data, offset)
         clost = self._24bit_int_fmt.unpack_from(data, offset)[0] & 0xFFFFFF
         return self._report(ssrc, flost, clost, seq, jit, lsr, dlsr)

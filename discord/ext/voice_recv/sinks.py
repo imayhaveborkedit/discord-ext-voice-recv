@@ -20,14 +20,12 @@ from discord.opus import Decoder as OpusDecoder
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Callable, Optional, Any, IO, Sequence, Tuple, Generator
+    from typing import Callable, Optional, Any, IO, Sequence, Tuple, Generator, Union, Dict, List
 
-    from .rtp import RTPPacket, RTCPPacket, FakePacket
+    from .rtp import AudioPacket, RTCPPacket
     from .voice_client import VoiceRecvClient
     from .opus import VoiceData
-
-    Packet = RTPPacket | FakePacket
-    User = discord.User | discord.Member
+    from .types import MemberOrUser as User
 
     BasicSinkWriteCB = Callable[[Optional[User], VoiceData], Any]
     BasicSinkWriteRTCPCB = Callable[[RTCPPacket], Any]
@@ -54,14 +52,14 @@ class VoiceRecvException(discord.DiscordException):
     """Generic exception for voice recv related errors"""
 
     def __init__(self, message: str):
-        self.message = message
+        self.message: str = message
 
 
 class SinkMeta(abc.ABCMeta):
-    __sink_listeners__: list[Tuple[str, str]]
+    __sink_listeners__: List[Tuple[str, str]]
 
-    def __new__(cls, name: str, bases: Tuple[type, ...], attrs: dict[str, Any], **kwargs):
-        listeners: dict[str, Any] = {}
+    def __new__(cls, name: str, bases: Tuple[type, ...], attrs: Dict[str, Any], **kwargs):
+        listeners: Dict[str, Any] = {}
         new_cls = super().__new__(cls, name, bases, attrs, **kwargs)
 
         for base in reversed(new_cls.__mro__):
@@ -90,7 +88,7 @@ class SinkMeta(abc.ABCMeta):
 
 # TODO: replace AudioSink hints with a sink generic
 class SinkABC(metaclass=SinkMeta):
-    __sink_listeners__: list[Tuple[str, str]]
+    __sink_listeners__: List[Tuple[str, str]]
 
     @property
     @abc.abstractmethod
@@ -157,7 +155,7 @@ class AudioSink(SinkABC):
         return self._child
 
     @property
-    def children(self) -> list[AudioSink]:
+    def children(self) -> List[AudioSink]:
         return [self._child] if self._child else []
 
     @property
@@ -201,7 +199,7 @@ class AudioSink(SinkABC):
 class MultiAudioSink(AudioSink):
     def __init__(self, destinations: Sequence[AudioSink], /):
         # Intentionally not calling super().__init__ here
-        self._children = list(destinations)
+        self._children: List[AudioSink] = list(destinations)
 
         if destinations is not None:
             for dest in destinations:
@@ -212,7 +210,7 @@ class MultiAudioSink(AudioSink):
         return self._children[0] if self._children else None
 
     @property
-    def children(self) -> list[AudioSink]:
+    def children(self) -> List[AudioSink]:
         return self._children.copy()
 
 
@@ -235,14 +233,14 @@ class BasicSink(AudioSink):
     def wants_opus(self) -> bool:
         return not self.decode
 
-    def write(self, user: Optional[User], data: VoiceData):
+    def write(self, user: Optional[User], data: VoiceData) -> None:
         self.cb(user, data)
 
     @AudioSink.listener()
-    def on_rtcp_packet(self, packet: RTCPPacket, guild: discord.Guild):
+    def on_rtcp_packet(self, packet: RTCPPacket, guild: discord.Guild) -> None:
         self.cb_rtcp(packet) if self.cb_rtcp else None
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         pass
 
 
@@ -255,10 +253,10 @@ class WaveSink(AudioSink):
     SAMPLE_WIDTH = OpusDecoder.SAMPLE_SIZE // OpusDecoder.CHANNELS
     SAMPLING_RATE = OpusDecoder.SAMPLING_RATE
 
-    def __init__(self, destination: str | IO[bytes]):
+    def __init__(self, destination: wave._File):
         super().__init__()
 
-        self._file = wave.open(destination, 'wb')
+        self._file: wave.Wave_write = wave.open(destination, 'wb')
         self._file.setnchannels(self.CHANNELS)
         self._file.setsampwidth(self.SAMPLE_WIDTH)
         self._file.setframerate(self.SAMPLING_RATE)
@@ -266,10 +264,10 @@ class WaveSink(AudioSink):
     def wants_opus(self) -> bool:
         return False
 
-    def write(self, user: Optional[User], data: VoiceData):
+    def write(self, user: Optional[User], data: VoiceData) -> None:
         self._file.writeframes(data.pcm)
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         try:
             self._file.close()
         except Exception:
@@ -290,8 +288,8 @@ class PCMVolumeTransformer(AudioSink):
 
         super().__init__(destination)
 
-        self.destination = destination
-        self.volume = volume
+        self.destination: AudioSink = destination
+        self._volume: float = volume
 
     def wants_opus(self) -> bool:
         return False
@@ -302,14 +300,14 @@ class PCMVolumeTransformer(AudioSink):
         return self._volume
 
     @volume.setter
-    def volume(self, value: float):  # TODO: type range
+    def volume(self, value: float):
         self._volume = max(value, 0.0)
 
-    def write(self, user: Optional[User], data: VoiceData):
+    def write(self, user: Optional[User], data: VoiceData) -> None:
         data.pcm = audioop.mul(data.pcm, 2, min(self._volume, 2.0))
         self.destination.write(user, data)
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         pass
 
 
@@ -319,17 +317,17 @@ class ConditionalFilter(AudioSink):
     def __init__(self, destination: AudioSink, predicate: ConditionalFilterFn):
         super().__init__(destination)
 
-        self.destination = destination
-        self.predicate = predicate
+        self.destination: AudioSink = destination
+        self.predicate: ConditionalFilterFn = predicate
 
     def wants_opus(self) -> bool:
         return self.destination.wants_opus()
 
-    def write(self, user: Optional[User], data: VoiceData):
+    def write(self, user: Optional[User], data: VoiceData) -> None:
         if self.predicate(user, data):
             self.destination.write(user, data)
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         del self.predicate
 
 
@@ -338,7 +336,7 @@ class UserFilter(ConditionalFilter):
 
     def __init__(self, destination: AudioSink, user: User):
         super().__init__(destination, self._predicate)
-        self.user = user
+        self.user: User = user
 
     def _predicate(self, user: Optional[User], data: VoiceData) -> bool:
         return user == self.user
@@ -347,9 +345,10 @@ class UserFilter(ConditionalFilter):
 class TimedFilter(ConditionalFilter):
     """A convenience class for a timed ConditionalFilter."""
 
-    def __init__(self, destination: AudioSink, duration: int | float, *, start_on_init: bool = False):
+    def __init__(self, destination: AudioSink, duration: float, *, start_on_init: bool = False):
         super().__init__(destination, self.predicate)
-        self.duration = duration
+        self.duration: float = duration
+        self.start_time: Optional[float]
 
         if start_on_init:
             self.start_time = self.get_time()
@@ -365,7 +364,7 @@ class TimedFilter(ConditionalFilter):
     def predicate(self, user: Optional[User], data: VoiceData) -> bool:
         return self.start_time is not None and self.get_time() - self.start_time < self.duration
 
-    def get_time(self) -> int | float:
+    def get_time(self) -> float:
         """Function to generate a timestamp.  Defaults to `time.perf_counter()`.
         Can be overridden.
         """
@@ -378,21 +377,21 @@ class SilenceGeneratorSink(AudioSink):
     def __init__(self, destination: AudioSink):
         super().__init__(destination)
 
-        self.destination = destination
-        self.silencegen = SilenceGenerator(self.destination.write)
+        self.destination: AudioSink = destination
+        self.silencegen: SilenceGenerator = SilenceGenerator(self.destination.write)
         self.silencegen.start()
 
     def wants_opus(self) -> bool:
         return self.destination.wants_opus()
 
-    def write(self, user: Optional[User], data: VoiceData):
+    def write(self, user: Optional[User], data: VoiceData) -> None:
         self.silencegen.push(user, data.packet)
         self.destination.write(user, data)
 
     @AudioSink.listener()
-    def on_voice_member_disconnect(self, member: discord.Member, ssrc: int | None):
+    def on_voice_member_disconnect(self, member: discord.Member, ssrc: Optional[int]) -> None:
         self.silencegen.drop(ssrc=ssrc, user=member)
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         self.silencegen.stop()
 

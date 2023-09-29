@@ -24,7 +24,7 @@ except ImportError:
 if TYPE_CHECKING:
     from typing import Optional, Callable, Any
     from .voice_client import VoiceRecvClient
-    from .rtp import RTPPacket, RTCPPacket
+    from .rtp import RTPPacket, RTCPPacket, RealPacket
 
     DecryptRTP = Callable[[RTPPacket], bytes]
     DecryptRTCP = Callable[[bytes], bytes]
@@ -89,7 +89,7 @@ class AudioReader:
         self.client._connection.remove_socket_listener(self.callback)
         self.active = False
 
-    def _decrypt_rtp_xsalsa20_poly1305(self, packet) -> bytes:
+    def _decrypt_rtp_xsalsa20_poly1305(self, packet: RTPPacket) -> bytes:
         nonce = bytearray(24)
         nonce[:12] = packet.header
         result = self.box.decrypt(bytes(packet.data), bytes(nonce))
@@ -107,7 +107,7 @@ class AudioReader:
 
         return data[:8] + result
 
-    def _decrypt_rtp_xsalsa20_poly1305_suffix(self, packet) -> bytes:
+    def _decrypt_rtp_xsalsa20_poly1305_suffix(self, packet: RTPPacket) -> bytes:
         nonce = packet.data[-24:]
         voice_data = packet.data[:-24]
         result = self.box.decrypt(bytes(voice_data), bytes(nonce))
@@ -125,7 +125,7 @@ class AudioReader:
 
         return header + result
 
-    def _decrypt_rtp_xsalsa20_poly1305_lite(self, packet) -> bytes:
+    def _decrypt_rtp_xsalsa20_poly1305_lite(self, packet: RTPPacket) -> bytes:
         nonce = bytearray(24)
         nonce[:4] = packet.data[-4:]
         voice_data = packet.data[:-4]

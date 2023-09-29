@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional, TypedDict
+from typing import TYPE_CHECKING, Literal, Optional, TypedDict
 
 from discord.types.snowflake import Snowflake
 
+if TYPE_CHECKING:
+    from typing import Union
+    import discord
+
+    MemberOrUser = Union[discord.Member, discord.User]
 
 ResolutionTypes = Literal['fixed']
 
@@ -43,5 +48,5 @@ class VoiceFlagsPayload(TypedDict):
 
 
 class VoicePlatformPayload(TypedDict):
-    platform: Optional[str | int]  # unknown because ive never seen it
+    platform: Optional[Union[str, int]]  # unknown because ive never actually seen it
     user_id: Snowflake
