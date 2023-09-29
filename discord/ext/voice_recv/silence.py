@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 __all__ = [
-    'SilenceGenerator'
+    'SilenceGenerator',
 ]
 
 SILENCE_PCM: Final = b'\0' * Decoder.FRAME_SIZE
@@ -43,8 +43,8 @@ class SilenceGenerator(threading.Thread):
         self.grace_period = grace_period
 
         self._ssrc_data: Dict[int, SSRCData] = {}  # {ssrc: (time, _, _)}
-        self._user_map_backup: Dict[int, int] = {} # {id: ssrc}
         self._last_timestamp: Dict[int, int] = {}  # {ssrc: timestamp}
+        self._user_map_backup: Dict[int, int] = {}  # {id: ssrc}
         self._end = threading.Event()
         self._has_data = threading.Event()
         self._lock = threading.Lock()
@@ -67,7 +67,7 @@ class SilenceGenerator(threading.Thread):
     def _get_next_info(self) -> SSRCData:
         return min(self._ssrc_data.values())
 
-    def drop(self, *, ssrc: Optional[int]=None, user: User=MISSING):
+    def drop(self, *, ssrc: Optional[int] = None, user: User = MISSING):
         """Stop generating silence packets for `ssrc`, or whatever is cached for `user`
         if `ssrc` is None, if any.
         """
@@ -76,7 +76,7 @@ class SilenceGenerator(threading.Thread):
             if ssrc is None:
                 ssrc = self._user_map_backup.pop(user.id, None)
                 if ssrc is None:
-                    return # weird but ok
+                    return  # weird but ok
 
             self._last_timestamp.pop(ssrc, None)
             last_data = self._ssrc_data.pop(ssrc, None)
@@ -123,8 +123,7 @@ class SilenceGenerator(threading.Thread):
 
                 # prepare the object before the sleep as a little micro optimization
                 next_packet = SilencePacket(
-                    ssrc,
-                    self._last_timestamp.get(ssrc, packet.timestamp) + Decoder.SAMPLES_PER_FRAME
+                    ssrc, self._last_timestamp.get(ssrc, packet.timestamp) + Decoder.SAMPLES_PER_FRAME
                 )
                 # TODO: check if destination wants opus or not
                 next_data = VoiceData(next_packet, user, pcm=SILENCE_PCM)
@@ -141,14 +140,10 @@ class SilenceGenerator(threading.Thread):
             with self._lock:
                 tlast2, luser, lpacket = self._ssrc_data.get(ssrc, (-1, None, packet))
 
-            if (
-                next_packet.ssrc != lpacket.ssrc
-                or tlast != tlast2
-                or self._end.is_set()
-            ):
-                continue # another packet came in and bumped up the time
+            if next_packet.ssrc != lpacket.ssrc or tlast != tlast2 or self._end.is_set():
+                continue  # another packet came in and bumped up the time
 
-            next_data.source = luser # is there any point in doing this?
+            next_data.source = luser  # is there any point in doing this?
             self.callback(luser, next_data)
 
             with self._lock:

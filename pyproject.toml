@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 125
+skip-string-normalization = true
+
+[tool.isort]
+profile = "black"
+combine_as_imports = true
+combine_star = true
+line_length = 125
+
+[tool.pyright]
+include = [
+    "discord/ext/voice_recv",
+]
+exclude = [
+    "**/__pycache__",
+    "build",
+    "dist",
+]
+reportUnnecessaryTypeIgnoreComment = "warning"
+# reportUnusedImport = "error"
+pythonVersion = "3.8"
+typeCheckingMode = "basic"

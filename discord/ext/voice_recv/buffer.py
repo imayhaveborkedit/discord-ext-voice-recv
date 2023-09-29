@@ -19,7 +19,7 @@ __all__ = [
 class HeapJitterBuffer:
     """Push item in, pop items out"""
 
-    def __init__(self, maxsize: int=10, *, prefsize: int=1, prefill: int=1):
+    def __init__(self, maxsize: int = 10, *, prefsize: int = 1, prefill: int = 1):
         if maxsize < 1:
             raise ValueError(f'maxsize ({maxsize}) must be greater than 0')
 
@@ -68,11 +68,7 @@ class HeapJitterBuffer:
         # We have the next packet ready
         # OR we havent sent a packet out yet
         # OR the buffer is full
-        if (
-            (sequential and positive_seq)
-            or not positive_seq
-            or len(self._buffer) >= self.maxsize
-        ):
+        if (sequential and positive_seq) or not positive_seq or len(self._buffer) >= self.maxsize:
             self._has_item.set()
         else:
             self._has_item.clear()
@@ -118,7 +114,7 @@ class HeapJitterBuffer:
         return True
 
     @overload
-    def pop(self, *, timeout: float=1.0) -> RTPPacket | None:
+    def pop(self, *, timeout: float = 1.0) -> RTPPacket | None:
         ...
 
     @overload
@@ -147,8 +143,7 @@ class HeapJitterBuffer:
         self._update_has_item()
         return packet
 
-
-    def peek(self, *, all: bool=False) -> RTPPacket | None:
+    def peek(self, *, all: bool = False) -> RTPPacket | None:
         """
         Returns the next packet in the buffer only if it is ready, meaning it can
         be popped. When `all` is set to True, it returns the next packet, if any.

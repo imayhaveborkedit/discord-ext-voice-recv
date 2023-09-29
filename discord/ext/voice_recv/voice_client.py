@@ -26,10 +26,11 @@ if TYPE_CHECKING:
 from pprint import pformat
 
 __all__ = [
-    "VoiceRecvClient"
+    'VoiceRecvClient',
 ]
 
 log = logging.getLogger(__name__)
+
 
 class VoiceRecvClient(discord.VoiceClient):
     def __init__(self, client, channel):
@@ -59,7 +60,7 @@ class VoiceRecvClient(discord.VoiceClient):
             log.debug("Destroying all decoders in guild %s", self.guild.id)
             self._reader.router.destroy_all_decoders()
 
-    def add_listener(self, func: CoroFunc, *, name: str=MISSING):
+    def add_listener(self, func: CoroFunc, *, name: str = MISSING):
         name = func.__name__ if name is MISSING else name
 
         if not asyncio.iscoroutinefunction(func):
@@ -70,7 +71,7 @@ class VoiceRecvClient(discord.VoiceClient):
         else:
             self._event_listeners[name] = [func]
 
-    def remove_listener(self, func: CoroFunc, *, name: str=MISSING):
+    def remove_listener(self, func: CoroFunc, *, name: str = MISSING):
         name = func.__name__ if name is MISSING else name
 
         if name in self._event_listeners:
@@ -126,8 +127,9 @@ class VoiceRecvClient(discord.VoiceClient):
     def _get_id_from_ssrc(self, ssrc: int) -> Optional[int]:
         return self._ssrc_to_id.get(ssrc)
 
-    def listen(self, sink: AudioSink, *, after: Optional[AfterCB]=None):
-        """Receives audio into a :class:`AudioSink`. TODO: more info"""
+    def listen(self, sink: AudioSink, *, after: Optional[AfterCB] = None):
+        """Receives audio into a :class:`AudioSink`."""
+        # TODO: more info
 
         if not self.is_connected():
             raise discord.ClientException('Not connected to voice.')

@@ -48,6 +48,7 @@ __all__ = [
     'SilenceGeneratorSink',
 ]
 
+
 # TODO: use this in more places
 class VoiceRecvException(discord.DiscordException):
     """Generic exception for voice recv related errors"""
@@ -85,6 +86,7 @@ class SinkMeta(abc.ABCMeta):
 
         new_cls.__sink_listeners__ = listener_list
         return new_cls
+
 
 # TODO: replace AudioSink hints with a sink generic
 class SinkABC(metaclass=SinkMeta):
@@ -137,7 +139,7 @@ class AudioSink(SinkABC):
     _parent: Optional[AudioSink] = None
     _child: Optional[AudioSink]
 
-    def __init__(self, destination: Optional[AudioSink]=None, /):
+    def __init__(self, destination: Optional[AudioSink] = None, /):
         self._child = destination
 
         if destination is not None:
@@ -168,7 +170,7 @@ class AudioSink(SinkABC):
             return self._voice_client
 
     @classmethod
-    def listener(cls, name: str=MISSING):
+    def listener(cls, name: str = MISSING):
         """Marks a function as an event listener."""
 
         if name is not MISSING and not isinstance(name, str):
@@ -217,11 +219,12 @@ class MultiAudioSink(AudioSink):
 class BasicSink(AudioSink):
     """Simple callback based sink."""
 
-    def __init__(self,
+    def __init__(
+        self,
         event: BasicSinkWriteCB,
         *,
-        rtcp_event: Optional[BasicSinkWriteRTCPCB]=None,
-        decode: bool=True
+        rtcp_event: Optional[BasicSinkWriteRTCPCB] = None,
+        decode: bool = True,
     ):
         super().__init__()
 
@@ -249,7 +252,7 @@ class WaveSink(AudioSink):
     """
 
     CHANNELS = OpusDecoder.CHANNELS
-    SAMPLE_WIDTH = OpusDecoder.SAMPLE_SIZE//OpusDecoder.CHANNELS
+    SAMPLE_WIDTH = OpusDecoder.SAMPLE_SIZE // OpusDecoder.CHANNELS
     SAMPLING_RATE = OpusDecoder.SAMPLING_RATE
 
     def __init__(self, destination: str | IO[bytes]):
@@ -278,7 +281,7 @@ class PCMVolumeTransformer(AudioSink):
     :class:`discord.PCMVolumeTransformer`.
     """
 
-    def __init__(self, destination: AudioSink, volume: float=1.0):
+    def __init__(self, destination: AudioSink, volume: float = 1.0):
         if not isinstance(destination, AudioSink):
             raise TypeError(f'expected AudioSink not {type(destination).__name__}')
 
@@ -299,7 +302,7 @@ class PCMVolumeTransformer(AudioSink):
         return self._volume
 
     @volume.setter
-    def volume(self, value: float): # TODO: type range
+    def volume(self, value: float):  # TODO: type range
         self._volume = max(value, 0.0)
 
     def write(self, user: Optional[User], data: VoiceData):
@@ -344,12 +347,7 @@ class UserFilter(ConditionalFilter):
 class TimedFilter(ConditionalFilter):
     """A convenience class for a timed ConditionalFilter."""
 
-    def __init__(self,
-        destination: AudioSink,
-        duration: int | float,
-        *,
-        start_on_init: bool=False
-    ):
+    def __init__(self, destination: AudioSink, duration: int | float, *, start_on_init: bool = False):
         super().__init__(destination, self.predicate)
         self.duration = duration
 

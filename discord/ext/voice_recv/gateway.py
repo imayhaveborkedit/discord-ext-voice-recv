@@ -9,6 +9,7 @@ from discord.enums import SpeakingState
 from .video import VoiceVideoStreams
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from discord.gateway import DiscordVoiceWebSocket
     from .voice_client import VoiceRecvClient
@@ -19,6 +20,7 @@ log.setLevel(logging.DEBUG)
 
 # https://cdn.discordapp.com/attachments/381887113391505410/1094473412623204533/image.png
 
+# fmt: off
 IDENTIFY                  = 0
 SELECT_PROTOCOL           = 1
 READY                     = 2
@@ -37,14 +39,16 @@ VOICE_BACKEND_VERSION     = 16 # (useless)
 CHANNEL_OPTIONS_UPDATE    = 17 # (useless)
 FLAGS                     = 18 # (???)
 PLATFORM                  = 20 # (unpopulated)
+# fmt: on
 
 
 async def hook(self: DiscordVoiceWebSocket, msg: dict):
     op: int = msg['op']
-    data: dict = msg.get('d') # type: ignore
-    vc: VoiceRecvClient = self._connection.voice_client # type: ignore
+    data: dict = msg.get('d')  # type: ignore
+    vc: VoiceRecvClient = self._connection.voice_client  # type: ignore
 
     from pprint import pformat
+
     if op not in (3, 6):
         log.debug("Received op %s: \n%s", op, pformat(data, compact=True))
 
@@ -55,8 +59,8 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
             log.info("WS payload has extra keys: %s", m)
 
     if op == self.READY:
-        self.ssrc: int = data['ssrc'] # type: ignore
-        vc._add_ssrc(vc.client.user.id, data['ssrc']) # type: ignore
+        self.ssrc: int = data['ssrc']  # type: ignore
+        vc._add_ssrc(vc.client.user.id, data['ssrc'])  # type: ignore
 
     elif op == self.SESSION_DESCRIPTION:
         # log.info("Doing voice hacks")
@@ -69,7 +73,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
         # this event refers to the speaking MODE, e.g. priority speaker
         uid = int(data['user_id'])
         ssrc = data['ssrc']
-        state = SpeakingState.try_value(data['speaking']) # type: ignore
+        state = SpeakingState.try_value(data['speaking'])  # type: ignore
         vc._add_ssrc(uid, ssrc)
         member = vc.guild.get_member(uid)
         vc.dispatch("voice_member_speaking_state", member, ssrc, state)
@@ -79,7 +83,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
         uid = int(data['user_id'])
         vc._add_ssrc(uid, data['audio_ssrc'])
         member = vc.guild.get_member(uid)
-        streams = VoiceVideoStreams(data=data, vc=vc) # type: ignore
+        streams = VoiceVideoStreams(data=data, vc=vc)  # type: ignore
         vc.dispatch("voice_member_video", member, streams)
 
     elif op == self.CLIENT_DISCONNECT:
@@ -93,7 +97,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: dict):
         vc._remove_ssrc(user_id=uid)
         member = vc.guild.get_member(uid)
         vc.dispatch("voice_member_disconnect", member, ssrc)
-        vc._speaking_cache.pop(ssrc, None) # type: ignore
+        vc._speaking_cache.pop(ssrc, None)  # type: ignore
 
     elif op == FLAGS:
         uid = int(data['user_id'])

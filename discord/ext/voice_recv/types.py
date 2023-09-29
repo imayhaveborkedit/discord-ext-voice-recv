@@ -9,10 +9,12 @@ from discord.types.snowflake import Snowflake
 
 ResolutionTypes = Literal['fixed']
 
+
 class VideoResolution(TypedDict):
     height: int
     width: int
     type: ResolutionTypes
+
 
 class VideoStream(TypedDict):
     active: bool
@@ -22,6 +24,7 @@ class VideoStream(TypedDict):
     rid: int
     rtx_ssrc: int
     ssrc: int
+
 
 class VoiceVideoPayload(TypedDict):
     audio_ssrc: int
@@ -40,5 +43,5 @@ class VoiceFlagsPayload(TypedDict):
 
 
 class VoicePlatformPayload(TypedDict):
-    platform: Optional[str | int] # unknown because ive never seen it
+    platform: Optional[str | int]  # unknown because ive never seen it
     user_id: Snowflake

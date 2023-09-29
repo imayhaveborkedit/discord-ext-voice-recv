@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 __all__ = [
-    "VoiceData"
+    'VoiceData',
 ]
 
 
@@ -42,12 +42,7 @@ class VoiceData:
 
     __slots__ = ('packet', 'source', 'pcm')
 
-    def __init__(self,
-        packet: Packet,
-        source: Optional[User],
-        *,
-        pcm: Optional[bytes]=None
-    ):
+    def __init__(self, packet: Packet, source: Optional[User], *, pcm: Optional[bytes] = None):
         self.packet = packet
         self.source = source
         self.pcm: bytes = pcm if pcm else b''
@@ -69,11 +64,7 @@ class PacketRouter:
         self._lock = threading.RLock()
         self._end_writer = threading.Event()
 
-        self._event_writer = threading.Thread(
-            target=self._event_loop,
-            daemon=True,
-            name=f"event-writer-{id(self):x}"
-        )
+        self._event_writer = threading.Thread(target=self._event_loop, daemon=True, name=f"event-writer-{id(self):x}")
         self._event_writer.start()
 
         self.register_events()
@@ -210,10 +201,7 @@ class PacketDecoder(threading.Thread):
     """docstring for PacketDecoder"""
 
     def __init__(self, sink: AudioSink, ssrc: int):
-        super().__init__(
-            daemon=True,
-            name=f'decoder-ssrc-{ssrc}'
-        )
+        super().__init__(daemon=True, name=f'decoder-ssrc-{ssrc}')
 
         self.sink = sink
         self.ssrc = ssrc
@@ -228,10 +216,10 @@ class PacketDecoder(threading.Thread):
         self._end_thread = threading.Event()
         self._lock = threading.Lock()
 
-        self.start() # no way this causes any problems haha
+        self.start()  # no way this causes any problems haha
 
     def _get_user(self, user_id: int) -> Optional[User]:
-        vc: VoiceRecvClient = self.sink.voice_client # type: ignore
+        vc: VoiceRecvClient = self.sink.voice_client  # type: ignore
         return vc.guild.get_member(user_id) or vc.client.get_user(user_id)
 
     def _get_cached_member(self) -> Optional[User]:
@@ -254,7 +242,7 @@ class PacketDecoder(threading.Thread):
             # the decode function uses buffer functions
             rest = self._buffer.flush()
             buffer = self._buffer
-            self._buffer = _BufferProxy(rest) # type: ignore
+            self._buffer = _BufferProxy(rest)  # type: ignore
 
             # We have temporarily replaced the buffer with a proxy object
             # which has filled in gaps with Nones.  The fake buffer acts
@@ -290,7 +278,7 @@ class PacketDecoder(threading.Thread):
     def notify(self, user_id: int):
         self._cached_id = user_id
 
-    def _get_next_packet(self, timeout: float=0.1) -> Packet | None:
+    def _get_next_packet(self, timeout: float = 0.1) -> Packet | None:
         packet = self._buffer.pop(timeout=timeout)
 
         if packet is None:
@@ -323,7 +311,8 @@ class PacketDecoder(threading.Thread):
 
             log.debug(
                 "Generating fec packet: fake=%s, fec=%s",
-                packet.sequence, next_packet.sequence
+                packet.sequence,
+                next_packet.sequence,
             )
             pcm = self._decoder.decode(nextdata, fec=True)
 
@@ -341,7 +330,7 @@ class PacketDecoder(threading.Thread):
         member = self._get_cached_member()
 
         if not member:
-            self._cached_id = self.sink.voice_client._get_id_from_ssrc(self.ssrc) # type: ignore
+            self._cached_id = self.sink.voice_client._get_id_from_ssrc(self.ssrc)  # type: ignore
             member = self._get_cached_member()
 
         data = VoiceData(packet, member, pcm=pcm)
@@ -366,9 +355,9 @@ class PacketDecoder(threading.Thread):
         except Exception:
             log.exception("Error in %s", self.name)
 
-    def stop(self, *, wait: Optional[float]=None):
+    def stop(self, *, wait: Optional[float] = None):
         self._end_thread.set()
-        self.join(wait) # is this necesary, useful even?
+        self.join(wait)  # is this necesary, useful even?
 
 
 class _BufferProxy:
@@ -380,7 +369,7 @@ class _BufferProxy:
 
         for packet in contents:
             # the last item in the buffer should always be a packet
-            nones = packet.sequence - self._buffer[-1].sequence + 1 # type: ignore
+            nones = packet.sequence - self._buffer[-1].sequence + 1  # type: ignore
 
             for _ in range(nones):
                 self._buffer.append(None)

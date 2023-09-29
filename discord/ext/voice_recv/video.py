@@ -8,12 +8,12 @@ if TYPE_CHECKING:
     from .types import (
         VoiceVideoPayload,
         VideoStream as VideoStreamPayload,
-        VideoResolution as VideoResolutionPayload
+        VideoResolution as VideoResolutionPayload,
     )
     from .voice_client import VoiceRecvClient
 
 __all__ = [
-    'VoiceVideoStreams'
+    'VoiceVideoStreams',
 ]
 
 
@@ -78,7 +78,7 @@ class VideoStreamResolution:
     __slots__ = (
         'height',
         'width',
-        'type'
+        'type',
     )
 
     def __init__(self, data: VideoResolutionPayload):
