@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 import queue
 import logging
 import threading
@@ -34,7 +33,7 @@ __all__ = [
 
 
 class VoiceData:
-    """docstring for VoiceData"""
+    """Container object for audio data and source user."""
 
     __slots__ = ('packet', 'source', 'pcm')
 
@@ -65,7 +64,7 @@ class PacketRouter:
         self.register_events()
 
     def _get_decoder(self, ssrc: int) -> PacketDecoder:
-        decoder = self.decoders.get(ssrc, None)
+        decoder = self.decoders.get(ssrc)
 
         if decoder is None:
             log.debug("Creating decoder for ssrc %s", ssrc)
@@ -193,8 +192,6 @@ class PacketRouter:
 
 
 class PacketDecoder(threading.Thread):
-    """docstring for PacketDecoder"""
-
     def __init__(self, sink: AudioSink, ssrc: int):
         super().__init__(daemon=True, name=f'decoder-ssrc-{ssrc}')
 

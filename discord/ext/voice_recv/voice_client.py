@@ -36,7 +36,6 @@ class VoiceRecvClient(discord.VoiceClient):
     def __init__(self, client: discord.Client, channel: discord.abc.Connectable):
         super().__init__(client, channel)
 
-        self._connecting = threading.Condition()
         self._reader: Optional[AudioReader] = None
         self._ssrc_to_id: Dict[int, int] = {}
         self._id_to_ssrc: Dict[int, int] = {}

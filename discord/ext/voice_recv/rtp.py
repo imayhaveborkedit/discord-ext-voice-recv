@@ -57,7 +57,9 @@ def decode(data: bytes) -> RTPPacket | RTCPPacket:
     # should always have 200-204 as their second byte, while RTP
     # packet are (probably) always 73 (or at least not 200-204).
 
-    assert data[0] >> 6 == 2  # check version bits
+    # check version bits
+    if not data[0] >> 6 == 2:
+        raise ValueError(f'Invalid packet header 0b{data[0]:0>8b}')
     return _rtcp_map.get(data[1], RTPPacket)(data)
 
 

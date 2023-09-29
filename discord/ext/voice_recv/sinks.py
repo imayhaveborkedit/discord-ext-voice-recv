@@ -213,6 +213,8 @@ class MultiAudioSink(AudioSink):
     def children(self) -> List[AudioSink]:
         return self._children.copy()
 
+    # TODO: add functions to add/remove children?
+
 
 class BasicSink(AudioSink):
     """Simple callback based sink."""
@@ -271,7 +273,7 @@ class WaveSink(AudioSink):
         try:
             self._file.close()
         except Exception:
-            log.info("WaveSink got error closing file on cleanup", exc_info=True)
+            log.warning("WaveSink got error closing file on cleanup", exc_info=True)
 
 
 class PCMVolumeTransformer(AudioSink):

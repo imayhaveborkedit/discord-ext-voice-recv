@@ -18,8 +18,8 @@ from .opus import PacketRouter
 try:
     import nacl.secret
     from nacl.exceptions import CryptoError
-except ImportError:
-    pass
+except ImportError as e:
+    raise RuntimeError("pynacl is required") from e
 
 if TYPE_CHECKING:
     from typing import Optional, Callable, Any
@@ -160,16 +160,14 @@ class AudioReader:
                 assert isinstance(packet, rtp.RTCPPacket)
 
                 if not isinstance(packet, rtp.ReceiverReportPacket):
-                    log.warning("Received unusual rtcp packet%s", f"\n{'*'*78}\n{packet}\n{'*'*78}")
+                    log.warning("Received unexpected rtcp packet type%s", f"\n{'*'*78}\n{packet}\n{'*'*78}")
         except CryptoError:
             msg = "CryptoError decoding data:\n  packet=%s\n  packet_data=%s"
             log.exception(msg, packet, packet_data)
             return
-
         except:
             log.exception("Error unpacking packet")
             traceback.print_exc()
-
         else:
             if not rtcp and packet.ssrc not in self.client._ssrc_to_id:
                 if packet.is_silence():
@@ -177,7 +175,6 @@ class AudioReader:
                     return
                 else:
                     log.info("Received packet for unknown ssrc %s:\n%s", packet.ssrc, packet)
-
         finally:
             if not packet:
                 return

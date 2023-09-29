@@ -17,11 +17,9 @@ if TYPE_CHECKING:
     from .voice_client import VoiceRecvClient
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
 
 
 # https://cdn.discordapp.com/attachments/381887113391505410/1094473412623204533/image.png
-
 # fmt: off
 IDENTIFY                  = 0
 SELECT_PROTOCOL           = 1
@@ -49,9 +47,9 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
     data: Dict[str, Any] = msg.get('d', {})
     vc: VoiceRecvClient = self._connection.voice_client  # type: ignore
 
-    from pprint import pformat
-
     if op not in (3, 6):
+        from pprint import pformat
+
         log.debug("Received op %s: \n%s", op, pformat(data, compact=True))
 
         if len(msg.keys()) > 2:
@@ -61,13 +59,11 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
             log.info("WS payload has extra keys: %s", m)
 
     if op == self.READY:
-        self.ssrc: int = data['ssrc']  # type: ignore
+        # why do i assign this
+        # self.ssrc: int = data['ssrc']  # type#: ignore
         vc._add_ssrc(vc.client.user.id, data['ssrc'])  # type: ignore
 
     elif op == self.SESSION_DESCRIPTION:
-        # log.info("Doing voice hacks")
-        # await _do_hacks(self)
-
         if vc._reader:
             vc._reader.update_secret_box()
 
