@@ -9,6 +9,7 @@ import threading
 
 import discord
 from discord.gateway import DiscordVoiceWebSocket
+from discord.voice_state import VoiceConnectionState
 from discord.utils import MISSING
 
 from typing import TYPE_CHECKING
@@ -41,13 +42,8 @@ class VoiceRecvClient(discord.VoiceClient):
         self._event_listeners: Dict[str, list] = {}
         self._speaking_cache: Dict[int, float] = {}
 
-    async def connect_websocket(self):
-        ws = await DiscordVoiceWebSocket.from_client(self, hook=hook)
-        self._connected.clear()
-        while ws.secret_key is None:
-            await ws.poll_event()
-        self._connected.set()
-        return ws
+    def create_connection_state(self):
+        return VoiceConnectionState(self, hook=hook)
 
     async def on_voice_state_update(self, data):
         old_channel_id = self.channel.id if self.channel else None
@@ -153,7 +149,6 @@ class VoiceRecvClient(discord.VoiceClient):
         """Stops receiving audio."""
         if self._reader:
             self._reader.stop()
-            self._reader.join(5)
             self._reader = None
 
     def stop_playing(self):

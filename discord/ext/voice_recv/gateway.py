@@ -42,7 +42,17 @@ PLATFORM                  = 20 # (unpopulated)
 async def hook(self: DiscordVoiceWebSocket, msg: dict):
     op: int = msg['op']
     data: dict = msg.get('d') # type: ignore
-    vc: VoiceRecvClient = self._connection # type: ignore
+    vc: VoiceRecvClient = self._connection.voice_client # type: ignore
+
+    from pprint import pformat
+    if op not in (3, 6):
+        log.debug("Received op %s: \n%s", op, pformat(data, compact=True))
+
+        if len(msg.keys()) > 2:
+            m = msg.copy()
+            m.pop('op')
+            m.pop('d')
+            log.info("WS payload has extra keys: %s", m)
 
     if op == self.READY:
         self.ssrc: int = data['ssrc'] # type: ignore

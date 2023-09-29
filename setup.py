@@ -35,7 +35,7 @@ setup(name='discord-ext-voice_recv',
       long_description_content_type='text/markdown',
       include_package_data=True,
       python_requires='>=3.8',
-      install_requires=['discord.py[voice]>=2.3,<2.4'],
+      install_requires=['discord.py[voice]>2.3'],
       extras_require=None,
       zip_safe=False,
       classifiers=[

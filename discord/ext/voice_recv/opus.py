@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     User = discord.User | discord.Member
 
     EventCB = Callable[..., Any]
-    EventData = Tuple[str, Tuple[Any], Dict[str, Any]]
+    EventData = Tuple[str, Tuple[Any, ...], Dict[str, Any]]
 
 log = logging.getLogger(__name__)
 
