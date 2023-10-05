@@ -14,7 +14,7 @@ from .silence import SilenceGenerator
 
 import discord
 
-from discord.utils import MISSING
+from discord.utils import MISSING, SequenceProxy
 from discord.opus import Decoder as OpusDecoder
 
 from typing import TYPE_CHECKING
@@ -178,7 +178,7 @@ class AudioSink(SinkABC):
         return self._child
 
     @property
-    def children(self) -> List[AudioSink]:
+    def children(self) -> Sequence[AudioSink]:
         return [self._child] if self._child else []
 
     @property
@@ -239,8 +239,8 @@ class MultiAudioSink(AudioSink):
         return self._children[0] if self._children else None
 
     @property
-    def children(self) -> List[AudioSink]:
-        return self._children.copy()
+    def children(self) -> Sequence[AudioSink]:
+        return SequenceProxy(self._children)
 
     # TODO: add functions to add/remove children?
 
