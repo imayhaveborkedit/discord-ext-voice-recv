@@ -40,6 +40,9 @@ class HeapJitterBuffer:
         # I sure hope I dont need to add a lock to this
         self._buffer: List[tuple[int, RTPPacket]] = []
 
+    def __bool__(self) -> bool:
+        return len(self._buffer) > 0
+
     def __len__(self) -> int:
         return len(self._buffer)
 

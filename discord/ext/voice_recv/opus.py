@@ -6,7 +6,7 @@ import queue
 import logging
 import threading
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from .buffer import HeapJitterBuffer as JitterBuffer
 from .rtp import FakePacket
@@ -28,6 +28,8 @@ log = logging.getLogger(__name__)
 __all__ = [
     'VoiceData',
 ]
+
+BUFFER_TIMEOUT: Final = 0.05
 
 
 class VoiceData:
@@ -268,10 +270,13 @@ class PacketDecoder(threading.Thread):
     def notify(self, user_id: int) -> None:
         self._cached_id = user_id
 
-    def _get_next_packet(self, timeout: float = 0.1) -> Optional[AudioPacket]:
+    def _get_next_packet(self, timeout: float = BUFFER_TIMEOUT) -> Optional[AudioPacket]:
         packet = self._buffer.pop(timeout=timeout)
 
         if packet is None:
+            if self._buffer:
+                packets = self._buffer.flush()
+                return packets[0]
             return
 
         elif not packet:
