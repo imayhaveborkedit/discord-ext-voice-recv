@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING
 from .buffer import HeapJitterBuffer as JitterBuffer
 from .rtp import FakePacket
 
-import discord
-
 from discord.opus import Decoder
 
 if TYPE_CHECKING:
@@ -298,8 +296,7 @@ class PacketDecoder(threading.Thread):
         next_packet = self._buffer.peek_next()
 
         if next_packet is not None:
-            nextdata = next_packet.decrypted_data
-            assert nextdata is not None
+            nextdata: bytes = next_packet.decrypted_data  # type: ignore
 
             log.debug(
                 "Generating fec packet: fake=%s, fec=%s",

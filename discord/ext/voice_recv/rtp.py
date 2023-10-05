@@ -43,7 +43,7 @@ class ExtensionID:
     speaking_state: Final = 9
 
 
-def decode(data: bytes) -> RTPPacket | RTCPPacket:
+def decode(data: bytes) -> RealPacket:
     """Creates an :class:`RTPPacket` or an :class:`RTCPPacket`.
 
     Parameters
