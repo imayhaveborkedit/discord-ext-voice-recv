@@ -161,10 +161,10 @@ def on_rtcp_packet(packet: RTCPPacket, guild: discord.Guild)
 ```
 A virtual event for when an RTCP packet is received.  This event only works inside of sinks, so it cannot be async.
 
-## Currently missing features
-- Silence generation (will be implemented as an included AudioSink)
-- Member speaking state status/event (design not yet decided)
-- Various internal impl details to maintain audio stability and consistency
+## Currently missing or WIP features
+- (WIP) Silence generation (will be implemented as an included AudioSink)
+- (WIP) Member speaking state status/event (design not yet decided)
+- (WIP) Various internal impl details to maintain audio stability and consistency
 
 ## Future plans
 - Muxer AudioSink (mixes multiple audio streams into a single stream)
