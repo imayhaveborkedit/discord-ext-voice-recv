@@ -92,6 +92,11 @@ class SinkABC(metaclass=SinkMeta):
 
     @property
     @abc.abstractmethod
+    def root(self) -> AudioSink:
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
     def parent(self) -> Optional[AudioSink]:
         raise NotImplementedError
 
@@ -126,6 +131,10 @@ class SinkABC(metaclass=SinkMeta):
     def cleanup(self):
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def _register_child(self, child: AudioSink) -> None:
+        raise NotImplementedError
+
     def walk_children(self) -> Generator[AudioSink, None, None]:
         for child in self.children:
             yield child
@@ -138,13 +147,27 @@ class AudioSink(SinkABC):
     _child: Optional[AudioSink]
 
     def __init__(self, destination: Optional[AudioSink] = None, /):
-        self._child = destination
-
         if destination is not None:
-            destination._parent = self
+            self._register_child(destination)
+        else:
+            self._child = None
 
     def __del__(self):
         self.cleanup()
+
+    def _register_child(self, child: AudioSink) -> None:
+        if child in self.root.walk_children():
+            raise RuntimeError('Sink is already registered.')
+
+        self._child = child
+        child._parent = self
+
+    @property
+    def root(self) -> AudioSink:
+        if self.parent is None:
+            return self
+
+        return self.parent.root
 
     @property
     def parent(self) -> Optional[AudioSink]:
@@ -199,11 +222,17 @@ class AudioSink(SinkABC):
 class MultiAudioSink(AudioSink):
     def __init__(self, destinations: Sequence[AudioSink], /):
         # Intentionally not calling super().__init__ here
-        self._children: List[AudioSink] = list(destinations)
-
         if destinations is not None:
             for dest in destinations:
-                dest._parent = self
+                self._register_child(dest)
+
+        self._children: List[AudioSink] = list(destinations)
+
+    def _register_child(self, child: AudioSink) -> None:
+        if child in self.root.walk_children():
+            raise RuntimeError('Sink is already registered.')
+
+        child._parent = self
 
     @property
     def child(self) -> Optional[AudioSink]:

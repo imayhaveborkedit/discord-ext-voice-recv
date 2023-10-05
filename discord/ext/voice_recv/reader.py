@@ -61,10 +61,13 @@ class AudioReader:
         Does not call cleanup()
         """
 
+        # This whole function is potentially very racy
+
         old_sink = self.sink
         old_sink._voice_client = None
 
         sink._voice_client = self.client
+        self.router.set_sink(sink)
         self.sink = sink
 
         return old_sink
