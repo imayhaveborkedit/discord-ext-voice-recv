@@ -19,7 +19,7 @@ from .reader import AudioReader
 from .sinks import AudioSink
 
 if TYPE_CHECKING:
-    from typing import Optional, Dict, Any
+    from typing import Optional, Dict, Any, Union
     from discord.ext.commands._types import CoroFunc
     from .reader import AfterCB
 
@@ -177,7 +177,7 @@ class VoiceRecvClient(discord.VoiceClient):
 
         self._reader.set_sink(sink)
 
-    def get_speaking(self, member: discord.Member | discord.User) -> Optional[bool]:
+    def get_speaking(self, member: Union[discord.Member, discord.User]) -> Optional[bool]:
         """Returns if a member is speaking (approximately), or None if not found."""
 
         ssrc = self._get_ssrc_from_id(member.id)
