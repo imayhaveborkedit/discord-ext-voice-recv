@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Optional, Literal, Union, Final, Dict, Any, Tuple, List
 
-    AudioPacket = Union['RTPPacket', 'FakePacket']
+    AudioPacket = Union['RTPPacket', 'FakePacket', 'SilencePacket']
     RealPacket = Union['RTPPacket', 'RTCPPacket']
-    Packet = Union[RealPacket, 'FakePacket']
+    Packet = Union[RealPacket, 'FakePacket', 'SilencePacket']
 
     PacketTypes = Union[
         'SenderReportPacket',
@@ -115,7 +115,7 @@ class FakePacket(_PacketCmpMixin):
         return False
 
 
-class SilencePacket(FakePacket):
+class SilencePacket(_PacketCmpMixin):
     __slots__ = ('ssrc', 'timestamp')
     decrypted_data: Final = OPUS_SILENCE
     extension_data: Final[Dict[int, Any]] = {}
@@ -243,7 +243,7 @@ class RTPPacket(_PacketCmpMixin):
 
 
 # http://www.rfcreader.com/#rfc3550_line855
-class RTCPPacket(_PacketCmpMixin):
+class RTCPPacket:
     __slots__ = ('version', 'padding', 'length')
     _header = struct.Struct('>BBH')
     _ssrc_fmt = struct.Struct('>I')
