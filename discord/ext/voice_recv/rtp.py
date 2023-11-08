@@ -5,13 +5,13 @@ from __future__ import annotations
 import struct
 import logging
 
-from math import ceil, modf
+from math import ceil
 from collections import namedtuple
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Optional, Literal, Union, Final, Dict, Any, Tuple, List
+    from typing import Optional, Literal, Union, Final, Dict, Any, Tuple
 
     AudioPacket = Union['RTPPacket', 'FakePacket', 'SilencePacket']
     RealPacket = Union['RTPPacket', 'RTCPPacket']

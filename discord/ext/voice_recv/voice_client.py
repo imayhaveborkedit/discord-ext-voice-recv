@@ -5,10 +5,8 @@ from __future__ import annotations
 import time
 import asyncio
 import logging
-import threading
 
 import discord
-from discord.gateway import DiscordVoiceWebSocket
 from discord.voice_state import VoiceConnectionState
 from discord.utils import MISSING
 

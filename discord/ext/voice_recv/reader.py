@@ -3,11 +3,7 @@
 from __future__ import annotations
 
 import time
-import select
-import socket
 import logging
-import threading
-import traceback
 
 from typing import TYPE_CHECKING
 
