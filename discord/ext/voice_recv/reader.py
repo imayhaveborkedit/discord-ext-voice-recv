@@ -49,6 +49,7 @@ class AudioReader:
         self.decrypt_rtp: DecryptRTP = getattr(self, '_decrypt_rtp_' + client.mode)
         self.decrypt_rtcp: DecryptRTCP = getattr(self, '_decrypt_rtcp_' + client.mode)
 
+        self.error: Optional[Exception] = None
         self.active: bool = False
         self.router: PacketRouter = PacketRouter(sink)
 
@@ -83,10 +84,35 @@ class AudioReader:
 
     def stop(self) -> None:
         if not self.active:
+            log.info('Tried to stop an inactive reader')
             return
 
-        self.client._connection.remove_socket_listener(self.callback)
+        try:
+            self.client._connection.remove_socket_listener(self.callback)
+        except Exception as e:
+            self.error = e
+            log.exception('Error removing socket listener')
+
         self.active = False
+
+        try:
+            self.router.stop()
+        except Exception as e:
+            self.error = e
+            log.exception('Error stopping packet router')
+
+        if self.after:
+            try:
+                self.after(self.error)
+            except Exception:
+                log.exception('Error calling listener after function')
+
+        # TODO: cleanup in reverse?
+        for sink in self.sink.root.walk_children(with_self=True):
+            try:
+                sink.cleanup()
+            except Exception:
+                log.exception('Error calling cleanup() for %s', sink)
 
     def _decrypt_rtp_xsalsa20_poly1305(self, packet: RTPPacket) -> bytes:
         nonce = bytearray(24)
@@ -157,11 +183,13 @@ class AudioReader:
 
                 if not isinstance(packet, rtp.ReceiverReportPacket):
                     log.warning("Received unexpected rtcp packet type%s", f"\n{'*'*78}\n{packet}\n{'*'*78}")
-        except CryptoError:
+        except CryptoError as e:
+            self.error = e
             msg = "CryptoError decoding data:\n  packet=%s\n  packet_data=%s"
             log.exception(msg, packet, packet_data)
             return
-        except:
+        except Exception as e:
+            self.error = e
             log.exception("Error unpacking packet")
         finally:
             if not packet:

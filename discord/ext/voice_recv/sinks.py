@@ -134,16 +134,11 @@ class SinkABC(metaclass=SinkMeta):
     def _register_child(self, child: AudioSink) -> None:
         raise NotImplementedError
 
-    def walk_children(self) -> Generator[AudioSink, None, None]:
-        for child in self.children:
-            yield child
-            yield from child.walk_children()
-
 
 class AudioSink(SinkABC):
     _voice_client: Optional[VoiceRecvClient]
     _parent: Optional[AudioSink] = None
-    _child: Optional[AudioSink]
+    _child: Optional[AudioSink] = None
 
     def __init__(self, destination: Optional[AudioSink] = None, /):
         if destination is not None:
@@ -193,6 +188,16 @@ class AudioSink(SinkABC):
     def client(self) -> Optional[discord.Client]:
         """Guaranteed to not be None inside write()"""
         return self.voice_client and self.voice_client.client
+
+    def walk_children(self, *, with_self: bool = False) -> Generator[AudioSink, None, None]:
+        """Returns a generator of all the children of this sink, recursively, depth first."""
+
+        if with_self:
+            yield self
+
+        for child in self.children:
+            yield child
+            yield from child.walk_children()
 
     @classmethod
     def listener(cls, name: str = MISSING):
@@ -429,4 +434,3 @@ class SilenceGeneratorSink(AudioSink):
 
     def cleanup(self) -> None:
         self.silencegen.stop()
-
