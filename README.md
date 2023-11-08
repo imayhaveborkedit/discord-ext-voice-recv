@@ -108,7 +108,7 @@ These are the main functions of a sink, names and purpose reflecting that of the
 - The `write()` function is the main callback, where the sink logic takes place.  In a sink pipeline, this could alter, inspect, or log a packet, and then write it to a child sink.  `VoiceData` is a simple container class with attributes for the origin member, opus data, optionally pcm data, and raw audio packet.
 - The `cleanup()` function is identical to `AudioSource.cleanup()`, a finalizer to cleanup any loose ends when the sink has finished its job.
 
-Additionally, sinks also have properties for their `voice_client`, as well as `parent` and `child`/`children` sinks.
+Additionally, sinks also have properties for their `client` and `voice_client`, as well as `parent` and `child`/`children` sinks.
 
 This extension comes with several useful built in sinks, which I will briefly explain another time.  For now just [source dive](discord/ext/voice_recv/sinks.py).  (TODO)
 

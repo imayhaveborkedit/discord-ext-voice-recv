@@ -86,7 +86,6 @@ class SinkMeta(abc.ABCMeta):
         return new_cls
 
 
-# TODO: replace AudioSink hints with a sink generic
 class SinkABC(metaclass=SinkMeta):
     __sink_listeners__: List[Tuple[str, str]]
 
@@ -115,8 +114,8 @@ class SinkABC(metaclass=SinkMeta):
     def voice_client(self) -> Optional[VoiceRecvClient]:
         raise NotImplementedError
 
-    # TODO: handling opus vs pcm is not strictly mutually exclusive
-    #       a sink could handle both but idk about that pattern
+    # handling opus vs pcm is not strictly mutually exclusive
+    # a sink could handle both but idk about that pattern
     @abc.abstractmethod
     def wants_opus(self) -> bool:
         """If sink handles opus data"""
@@ -189,6 +188,11 @@ class AudioSink(SinkABC):
             return self.parent.voice_client
         else:
             return self._voice_client
+
+    @property
+    def client(self) -> Optional[discord.Client]:
+        """Guaranteed to not be None inside write()"""
+        return self.voice_client and self.voice_client.client
 
     @classmethod
     def listener(cls, name: str = MISSING):
