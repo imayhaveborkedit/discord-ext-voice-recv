@@ -167,21 +167,22 @@ class AudioReader:
             return
         except:
             log.exception("Error unpacking packet")
-            traceback.print_exc()
-        else:
-            if not rtcp and packet.ssrc not in self.client._ssrc_to_id:
-                if packet.is_silence():
-                    log.debug("Skipping silence packet for unknown ssrc %s", packet.ssrc)
-                    return
-                else:
-                    log.info("Received packet for unknown ssrc %s:\n%s", packet.ssrc, packet)
         finally:
             if not packet:
                 return
 
-        # I could combine these in a function in the router but this is faster
         if rtcp:
             self.router.feed_rtcp(packet)  # type: ignore
         else:
-            self.client._speaking_cache[packet.ssrc] = time.time()
-            self.router.feed_rtp(packet)  # type: ignore
+            _packet: RTPPacket = packet  # type: ignore  # dumb typing hack
+
+            if _packet.ssrc not in self.client._ssrc_to_id:
+                if _packet.is_silence():
+                    # TODO: make a list of ssrcs so this only gets logged once?
+                    log.debug("Skipping silence packet for unknown ssrc %s", _packet.ssrc)
+                    return
+                else:
+                    log.info("Received packet for unknown ssrc %s:\n%s", _packet.ssrc, _packet)
+
+            self.client._speaking_cache[_packet.ssrc] = time.time()
+            self.router.feed_rtp(_packet)
