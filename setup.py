@@ -29,7 +29,7 @@ setup(
     author='Imayhaveborkedit',
     url='https://github.com/imayhaveborkedit/discord-ext-voice-recv',
     version=version,
-    packages=['discord.ext.voice_recv'],
+    packages=['discord.ext.voice_recv', 'discord.ext.voice_recv.extras'],
     license='MIT',
     description='Experimental voice receive extension for discord.py',
     long_description=readme,
