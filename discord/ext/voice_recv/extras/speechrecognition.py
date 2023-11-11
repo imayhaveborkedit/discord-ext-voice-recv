@@ -150,7 +150,8 @@ else:
 
                 buf = sd.get('buffer')
                 if buf is not None:
-                    buf.clear()
+                    # arrays don't have a clear function
+                    del buf[:]
 
         def _debug_audio_chunk(self, audio: sr.AudioData) -> None:
             import io, wave, discord
