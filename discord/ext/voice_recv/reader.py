@@ -208,5 +208,5 @@ class AudioReader:
                 else:
                     log.info("Received packet for unknown ssrc %s:\n%s", _packet.ssrc, _packet)
 
-            self.client._speaking_cache[_packet.ssrc] = time.time()
+            self.client._speaking_cache[_packet.ssrc] = time.perf_counter()
             self.router.feed_rtp(_packet)

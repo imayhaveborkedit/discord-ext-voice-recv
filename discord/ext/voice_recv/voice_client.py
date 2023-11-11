@@ -182,8 +182,8 @@ class VoiceRecvClient(discord.VoiceClient):
         if ssrc is None:
             return
 
-        last_packet_time = self._speaking_cache.get(ssrc, None)
+        last_packet_time = self._speaking_cache.get(ssrc)
         if last_packet_time is None:
             return
 
-        return time.time() - last_packet_time < 0.02
+        return time.perf_counter() - last_packet_time < 0.02
