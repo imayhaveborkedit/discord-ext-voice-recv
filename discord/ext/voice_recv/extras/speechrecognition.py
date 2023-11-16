@@ -9,14 +9,13 @@ log = logging.getLogger(__name__)
 try:
     import speech_recognition as sr  # type: ignore
 except ImportError:
-    log.debug('speech_recognition module not found, not generating SpeechRecognitionSink')
-    # TODO: generate stub?
+    log.info('speech_recognition module not found, not generating SpeechRecognitionSink')
+    __all__ = []
 else:
     import time
     import array
     import asyncio
     import audioop
-    import threading
 
     from collections import defaultdict
 
@@ -28,6 +27,8 @@ else:
     if TYPE_CHECKING:
         from concurrent.futures import Future as CFuture
         from typing import Literal, Callable, Optional, Any, Final, Protocol, Awaitable, TypeVar
+
+        from discord import Member
 
         from ..opus import VoiceData
         from ..types import MemberOrUser as User
@@ -75,14 +76,16 @@ else:
             text_cb: Optional[SRTextCB] = None,
             default_recognizer: SRRecognizerMethod = 'google',
             phrase_time_limit: int = 10,
+            ignore_silence_packets: bool = True,
         ):
             super().__init__(None)
             self.process_cb: Optional[SRProcessDataCB] = process_cb
             self.text_cb: Optional[SRTextCB] = text_cb
             self.phrase_time_limmit: int = phrase_time_limit
+            self.ignore_silence_packets: bool = ignore_silence_packets
 
             self.default_recognizer: SRRecognizerMethod = default_recognizer
-            self.stream_data: defaultdict[int, _StreamData] = defaultdict(
+            self._stream_data: defaultdict[int, _StreamData] = defaultdict(
                 lambda: _StreamData(stopper=None, recognizer=sr.Recognizer(), buffer=array.array('B'))
             )
 
@@ -93,21 +96,19 @@ else:
         def wants_opus(self) -> bool:
             return False
 
-        def write(self, user: Optional[User], data: VoiceData):
-            # if isinstance(data.packet, SilencePacket):
-            #     return
+        def write(self, user: Optional[User], data: VoiceData) -> None:
+            if self.ignore_silence_packets and isinstance(data.packet, SilencePacket):
+                return
 
             if user is None:
                 return
 
-            # log.debug("Adding data for user %r", user)
-            sdata = self.stream_data[user.id]
-            # TODO: lock?  Do I even need to?
+            sdata = self._stream_data[user.id]
             sdata['buffer'].extend(data.pcm)
 
             if not sdata['stopper']:
                 sdata['stopper'] = sdata['recognizer'].listen_in_background(
-                    DiscordAudio(sdata['buffer']), self.background_listener(user), self.phrase_time_limmit
+                    DiscordSRAudioSource(sdata['buffer']), self.background_listener(user), self.phrase_time_limmit
                 )
 
         def background_listener(self, user: User):
@@ -129,7 +130,7 @@ else:
                     func = getattr(recognizer, 'recognize_' + self.default_recognizer, recognizer.recognize_google)
                     text = func(audio)  # type: ignore
                 except sr.UnknownValueError:
-                    log.debug("bad speech chunk")
+                    log.debug("Bad speech chunk")
                     # self._debug_audio_chunk(audio)
 
                 return text
@@ -142,18 +143,27 @@ else:
 
             return cb
 
-        def cleanup(self):
-            for sd in tuple(self.stream_data.values()):
-                stop = sd.get('stopper')
-                if stop:
-                    stop()
+        @AudioSink.listener()
+        def on_voice_member_disconnect(self, member: Member, ssrc: Optional[int]) -> None:
+            self._drop(member.id)
 
-                buf = sd.get('buffer')
-                if buf is not None:
-                    # arrays don't have a clear function
-                    del buf[:]
+        def cleanup(self) -> None:
+            for user_id in tuple(self._stream_data.keys()):
+                self._drop(user_id)
 
-        def _debug_audio_chunk(self, audio: sr.AudioData) -> None:
+        def _drop(self, user_id: int) -> None:
+            data = self._stream_data.pop(user_id)
+
+            stopper = data.get('stopper')
+            if stopper:
+                stopper()
+
+            buffer = data.get('buffer')
+            if buffer:
+                # arrays don't have a clear function
+                del buffer[:]
+
+        def _debug_audio_chunk(self, audio: sr.AudioData, filename: str = 'sound.wav') -> None:
             import io, wave, discord
 
             with io.BytesIO() as b:
@@ -164,10 +174,10 @@ else:
                     writer.writeframes(audio.get_wav_data())
 
                 b.seek(0)
-                f = discord.File(b, 'sound.wav')
+                f = discord.File(b, filename)
                 self._await(self.voice_client.channel.send(file=f))  # type: ignore
 
-    class DiscordAudio(sr.AudioSource):
+    class DiscordSRAudioSource(sr.AudioSource):
         little_endian: Final[bool] = True
         SAMPLE_RATE: Final[int] = 48_000
         SAMPLE_WIDTH: Final[int] = 2
@@ -188,14 +198,12 @@ else:
             self._entered = True
             return self
 
-        def __exit__(self, *exc):
+        def __exit__(self, *exc) -> None:
             self._entered = False
             if any(exc):
-                log.exception('Error closing audio source')
+                log.exception('Error closing sr audio source')
 
         def read(self, size: int) -> bytes:
-            log.debug("Buffer size: %s", len(self.buffer))
-
             # TODO: make this timeout configurable
             for _ in range(10):
                 if len(self.buffer) < size * self.CHANNELS:
@@ -207,13 +215,9 @@ else:
                     return b''
 
             chunksize = size * self.CHANNELS
-
             audiochunk = self.buffer[:chunksize].tobytes()
             del self.buffer[: min(chunksize, len(audiochunk))]
-
             audiochunk = audioop.tomono(audiochunk, 2, 1, 1)
-
-            log.debug("Returning chunk of size: %s", len(audiochunk))
             return audiochunk
 
         def close(self) -> None:

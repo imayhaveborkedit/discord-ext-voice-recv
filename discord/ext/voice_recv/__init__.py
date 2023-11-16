@@ -7,10 +7,9 @@ from .video import *
 from .opus import *
 from .rtp import *
 
-from .extras import *
-
 from . import (
     rtp as rtp,
+    extras as extras,
 )
 
 __title__ = 'discord.ext.voice_recv'
