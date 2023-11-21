@@ -364,9 +364,9 @@ class FFmpegSink(AudioSink):
         self.buffer: IO[bytes] = buffer
         self.on_error: FFmpegErrorCB = on_error or self._on_error
 
-        args = [executable]
+        args = [executable, '-hide_banner']
         subprocess_kwargs: Dict[str, Any] = {'stdin': subprocess.PIPE}
-        if self.buffer:
+        if self.buffer is not MISSING:
             subprocess_kwargs['stdout'] = subprocess.PIPE
 
         piping_stderr = False
@@ -375,8 +375,7 @@ class FFmpegSink(AudioSink):
                 stderr.fileno()
             except Exception:
                 piping_stderr = True
-
-        subprocess_kwargs['stderr'] = subprocess.PIPE if piping_stderr else stderr
+                subprocess_kwargs['stderr'] = subprocess.PIPE
 
         if isinstance(before_options, str):
             args.extend(shlex.split(before_options))
@@ -461,15 +460,19 @@ class FFmpegSink(AudioSink):
         if proc is MISSING:
             return
 
-        log.debug('Ending ffmpeg process nicely')
+        log.debug('Terminating ffmpeg process %s.', proc.pid)
 
         try:
             self._stdin.close()
-            proc.communicate(timeout=5)
         except Exception:
             pass
 
-        log.debug('Terminating ffmpeg process %s.', proc.pid)
+        # TODO: extract wait time
+        log.debug('Waiting for ffmpeg process %s for up to 5 seconds.', proc.pid)
+        try:
+            proc.wait(5)
+        except Exception:
+            pass
 
         try:
             proc.kill()
@@ -483,13 +486,15 @@ class FFmpegSink(AudioSink):
         else:
             log.info('ffmpeg process %s successfully terminated with return code of %s.', proc.pid, proc.returncode)
 
+        self._process = MISSING
+
     def _pipe_reader(self, source: IO[bytes], dest: IO[bytes]) -> None:
         while self._process:
             if source.closed:
                 return
             try:
-                data: bytes = source.read(discord.FFmpegAudio.BLOCKSIZE)
-            except OSError as e:
+                data = source.read(discord.FFmpegAudio.BLOCKSIZE)
+            except (OSError, ValueError) as e:
                 log.debug('FFmpeg stdin pipe closed: %s', e)
                 return
             except Exception:
@@ -501,7 +506,6 @@ class FFmpegSink(AudioSink):
                 dest.write(data)
             except Exception as e:
                 log.exception('Write error for %s', self)
-                source.close()
                 self._kill_process()
                 self.on_error(self, e, None)
                 return
