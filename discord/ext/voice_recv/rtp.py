@@ -63,6 +63,14 @@ def decode(data: bytes) -> RealPacket:
     return _rtcp_map.get(data[1], RTPPacket)(data)
 
 
+def decode_rtp(data: bytes) -> RTPPacket:
+    return decode(data)  # type: ignore
+
+
+def decode_rtcp(data: bytes) -> RTCPPacket:
+    return decode(data)  # type: ignore
+
+
 def is_rtcp(data: bytes) -> bool:
     return 200 <= data[1] <= 204
 

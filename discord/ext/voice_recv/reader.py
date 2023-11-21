@@ -182,11 +182,11 @@ class AudioReader:
         rtcp = False
         try:
             if not rtp.is_rtcp(packet_data):
-                packet = rtp.decode(packet_data)
-                packet.decrypted_data = self.decrypt_rtp(packet)  # type: ignore
+                packet = rtp.decode_rtp(packet_data)
+                packet.decrypted_data = self.decrypt_rtp(packet)
             else:
                 rtcp = True
-                packet = rtp.decode(self.decrypt_rtcp(packet_data))
+                packet = rtp.decode_rtcp(self.decrypt_rtcp(packet_data))
 
                 if not isinstance(packet, rtp.ReceiverReportPacket):
                     log.warning("Received unexpected rtcp packet type%s", f"\n{'*'*78}\n{packet}\n{'*'*78}")
