@@ -98,12 +98,7 @@ class AudioReader:
             log.info('Tried to stop an inactive reader')
             return
 
-        try:
-            self.client._connection.remove_socket_listener(self.callback)
-        except Exception as e:
-            self.error = e
-            log.exception('Error removing socket listener')
-
+        self.client._connection.remove_socket_listener(self.callback)
         self.active = False
         self._notify_timer()
 
@@ -204,6 +199,9 @@ class AudioReader:
             self.error = e
             log.exception("Error unpacking packet")
         finally:
+            if self.error:
+                self.stop()
+                return
             if not packet:
                 return
 
@@ -224,7 +222,12 @@ class AudioReader:
             self.client._speaking_cache[_packet.ssrc] = time.perf_counter()
             self.last_speaking_state[_packet.ssrc] = True
             self._notify_timer()
-            self.router.feed_rtp(_packet)
+            try:
+                self.router.feed_rtp(_packet)
+            except Exception as e:
+                log.exception('Error processing rtp packet')
+                self.error = e
+                self.stop()
 
     def _notify_timer(self) -> None:
         self.speaking_timer_event.set()
