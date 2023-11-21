@@ -112,7 +112,11 @@ These are the main functions of a sink, names and purpose reflecting that of the
 
 Additionally, sinks also have properties for their `client` and `voice_client`, as well as `parent` and `child`/`children` sinks.
 
-This extension comes with several useful built in sinks, which I will briefly explain another time.  For now just [source dive](discord/ext/voice_recv/sinks.py).  (TODO)
+
+### Built in Sinks
+
+This extension comes with several useful built in sinks, ... 
+For now just [source dive](discord/ext/voice_recv/sinks.py).  (TODO)
 
 ### Sink event listeners
 With AudioSinks being potentially more complex and stateful than AudioSources and the addition of new events, it is sometimes necessary to handle events in the context of a sink.  It would be rather awkward to have to register a sink function with `commands.Bot.add_listener()` while dealing with thread safety, and even more so using `discord.Client`.  To remedy this, listeners can be defined within sinks, similarly to how they work in Cogs.
