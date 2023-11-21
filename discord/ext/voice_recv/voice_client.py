@@ -50,7 +50,11 @@ class VoiceRecvClient(discord.VoiceClient):
 
         log.debug("Got voice_client VSU: \n%s", pformat(data, compact=True))
 
-        channel_id = int(data['channel_id'])
+        # this can be None
+        try:
+            channel_id = int(data['channel_id'])
+        except TypeError:
+            return
 
         # if we joined, left, or switched channels, reset the decoders
         if self._reader and channel_id != old_channel_id:
