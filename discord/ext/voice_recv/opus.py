@@ -210,7 +210,7 @@ class PacketDecoder(threading.Thread):
         self._last_seq: int = 0
 
         self._end_thread: threading.Event = threading.Event()
-        self._lock: threading.Lock = threading.Lock()
+        self._lock: threading.RLock = threading.RLock()
 
         self.start()  # no way this causes any problems haha
 
@@ -364,7 +364,7 @@ class PacketDecoder(threading.Thread):
         except Exception:
             log.exception("Error in %s", self.name)
 
-    def stop(self, *, wait: Union[float, bool] = True) -> None:
+    def stop(self, *, wait: Union[float, bool] = False) -> None:
         self._end_thread.set()
         if wait is False:
             return
