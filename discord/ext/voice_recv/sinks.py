@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
 import abc
 import time
 import wave
+import shlex
 import inspect
 import audioop
 import logging
+import threading
+import subprocess
 
 from .opus import VoiceData
 from .silence import SilenceGenerator
@@ -17,7 +21,7 @@ import discord
 from discord.utils import MISSING, SequenceProxy
 from discord.opus import Decoder as OpusDecoder
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
     from typing import Callable, Optional, Any, IO, Sequence, Tuple, Generator, Union, Dict, List
@@ -30,6 +34,7 @@ if TYPE_CHECKING:
     BasicSinkWriteCB = Callable[[Optional[User], VoiceData], Any]
     BasicSinkWriteRTCPCB = Callable[[RTCPPacket], Any]
     ConditionalFilterFn = Callable[[Optional[User], VoiceData], bool]
+    FFmpegErrorCB = Callable[['FFmpegSink', Exception, Optional[VoiceData]], Any]
 
 
 log = logging.getLogger(__name__)
@@ -39,6 +44,7 @@ __all__ = [
     'MultiAudioSink',
     'BasicSink',
     'WaveSink',
+    'FFmpegSink',
     'PCMVolumeTransformer',
     'ConditionalFilter',
     'TimedFilter',
@@ -312,6 +318,193 @@ class WaveSink(AudioSink):
             self._file.close()
         except Exception:
             log.warning("WaveSink got error closing file on cleanup", exc_info=True)
+
+
+class FFmpegSink(AudioSink):
+    @overload
+    def __init__(
+        self,
+        *,
+        filename: str,
+        executable: str = 'ffmpeg',
+        stderr: Optional[IO[bytes]] = None,
+        before_options: Optional[str] = None,
+        options: Optional[str] = None,
+        on_error: Optional[FFmpegErrorCB] = None,
+    ):
+        ...
+
+    @overload
+    def __init__(
+        self,
+        *,
+        buffer: IO[bytes],
+        executable: str = 'ffmpeg',
+        stderr: Optional[IO[bytes]] = None,
+        before_options: Optional[str] = None,
+        options: Optional[str] = None,
+        on_error: Optional[FFmpegErrorCB] = None,
+    ):
+        ...
+
+    def __init__(
+        self,
+        *,
+        filename: str = MISSING,
+        buffer: IO[bytes] = MISSING,
+        executable: str = 'ffmpeg',
+        stderr: Optional[IO[bytes]] = None,
+        before_options: Optional[str] = None,
+        options: Optional[str] = None,
+        on_error: Optional[FFmpegErrorCB] = None,
+    ):
+        super().__init__()
+
+        self.filename: str = filename or 'pipe:1'
+        self.buffer: IO[bytes] = buffer
+        self.on_error: FFmpegErrorCB = on_error or self._on_error
+
+        args = [executable]
+        subprocess_kwargs: Dict[str, Any] = {'stdin': subprocess.PIPE}
+        if self.buffer:
+            subprocess_kwargs['stdout'] = subprocess.PIPE
+
+        piping_stderr = False
+        if stderr is not None:
+            try:
+                stderr.fileno()
+            except Exception:
+                piping_stderr = True
+
+        subprocess_kwargs['stderr'] = subprocess.PIPE if piping_stderr else stderr
+
+        if isinstance(before_options, str):
+            args.extend(shlex.split(before_options))
+
+        # fmt: off
+        args.extend((
+            '-f', 's16le',
+            '-ar', '48000',
+            '-ac', '2',
+            '-i', 'pipe:0',
+            '-loglevel', 'warning',
+            '-blocksize', str(discord.FFmpegAudio.BLOCKSIZE)
+        ))
+        # fmt: on
+
+        if isinstance(options, str):
+            args.extend(shlex.split(options))
+
+        args.append(self.filename)
+
+        self._process: subprocess.Popen = MISSING
+        self._process = self._spawn_process(args, **subprocess_kwargs)
+
+        self._stdin: IO[bytes] = self._process.stdin  # type: ignore
+        self._stdout: Optional[IO[bytes]] = None
+        self._stderr: Optional[IO[bytes]] = None
+        self._stdout_reader_thread: Optional[threading.Thread] = None
+        self._stderr_reader_thread: Optional[threading.Thread] = None
+
+        if self.buffer:
+            n = f'popen-stout-reader:pid-{self._process.pid}'
+            self._stdout = self._process.stdout
+            _args = (self._stdout, self.buffer)
+            self._stdout_reader_thread = threading.Thread(target=self._pipe_reader, args=_args, daemon=True, name=n)
+            self._stdout_reader_thread.start()
+
+        if piping_stderr:
+            n = f'popen-stderr-reader:pid-{self._process.pid}'
+            self._stderr = self._process.stderr
+            _args = (self._stderr, stderr)
+            self._stderr_reader_thread = threading.Thread(target=self._pipe_reader, args=_args, daemon=True, name=n)
+            self._stderr_reader_thread.start()
+
+    @staticmethod
+    def _on_error(_self: FFmpegSink, error: Exception, data: Optional[VoiceData]) -> None:
+        _self.voice_client.stop_listening()  # type: ignore
+
+    def wants_opus(self) -> bool:
+        return False
+
+    def cleanup(self):
+        self._kill_process()
+        self._process = self._stdout = self._stdin = self._stderr = MISSING
+
+    def write(self, user: Optional[User], data: VoiceData):
+        if self._process and not self._stdin.closed:
+            audio = data.opus if self.wants_opus() else data.pcm
+            assert audio is not None
+            try:
+                self._stdin.write(audio)
+            except Exception as e:
+                log.exception('Error writing data to ffmpeg')
+                self._kill_process()
+                self.on_error(self, e, data)
+
+    def _spawn_process(self, args: Any, **subprocess_kwargs: Any) -> subprocess.Popen:
+        log.debug('Spawning ffmpeg process with command: %s', args)
+        process = None
+        try:
+            process = subprocess.Popen(args, creationflags=discord.player.CREATE_NO_WINDOW, **subprocess_kwargs)
+        except FileNotFoundError:
+            executable = args.partition(' ')[0] if isinstance(args, str) else args[0]
+            raise Exception(executable + ' was not found.') from None
+        except subprocess.SubprocessError as exc:
+            raise Exception(f'Popen failed: {exc.__class__.__name__}: {exc}') from exc
+        else:
+            return process
+
+    def _kill_process(self) -> None:
+        # this function gets called in __del__ so instance attributes might not even exist
+        proc: subprocess.Popen = getattr(self, '_process', MISSING)
+        if proc is MISSING:
+            return
+
+        log.debug('Ending ffmpeg process nicely')
+
+        try:
+            self._stdin.close()
+            proc.communicate(timeout=5)
+        except Exception:
+            pass
+
+        log.debug('Terminating ffmpeg process %s.', proc.pid)
+
+        try:
+            proc.kill()
+        except Exception:
+            log.exception('Ignoring error attempting to kill ffmpeg process %s', proc.pid)
+
+        if proc.poll() is None:
+            log.info('ffmpeg process %s has not terminated. Waiting to terminate...', proc.pid)
+            proc.communicate()
+            log.info('ffmpeg process %s should have terminated with a return code of %s.', proc.pid, proc.returncode)
+        else:
+            log.info('ffmpeg process %s successfully terminated with return code of %s.', proc.pid, proc.returncode)
+
+    def _pipe_reader(self, source: IO[bytes], dest: IO[bytes]) -> None:
+        while self._process:
+            if source.closed:
+                return
+            try:
+                data: bytes = source.read(discord.FFmpegAudio.BLOCKSIZE)
+            except OSError as e:
+                log.debug('FFmpeg stdin pipe closed: %s', e)
+                return
+            except Exception:
+                log.debug('Read error for %s, this is probably not a problem', self, exc_info=True)
+                return
+            if data is None:
+                return
+            try:
+                dest.write(data)
+            except Exception as e:
+                log.exception('Write error for %s', self)
+                source.close()
+                self._kill_process()
+                self.on_error(self, e, None)
+                return
 
 
 class PCMVolumeTransformer(AudioSink):
