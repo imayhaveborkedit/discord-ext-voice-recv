@@ -142,6 +142,7 @@ class PacketRouter:
             decoder.notify(user_id)
 
     def dispatch(self, event: str, *args: Any, **kwargs: Any) -> None:
+        log.debug("Dispatching voice_client event %s", event)
         self._event_buffer.put_nowait((event, args, kwargs))
 
     def _dispatch_to_listeners(self, event: str, *args: Any, **kwargs: Any) -> None:
@@ -153,7 +154,10 @@ class PacketRouter:
             decoder = self.decoders.pop(ssrc, None)
 
             if decoder:
-                decoder.flush()
+                try:
+                    decoder.flush()
+                except Exception:
+                    log.warning('Error flushing %s', decoder.name, exc_info=True)
                 decoder.stop()
 
     def destroy_all_decoders(self) -> None:
@@ -241,8 +245,11 @@ class PacketDecoder(threading.Thread):
             # enough like the real buffer to be functional but without
             # all of the checks and logic the real one has.  We then cycle
             # through the remaining packets and everything should JustWork(TM)
-
             try:
+                # Check if we actually need to flush anything of value
+                if not any(self._buffer):
+                    return
+
                 while self._buffer:
                     packet = self._buffer.pop()
 
@@ -329,7 +336,13 @@ class PacketDecoder(threading.Thread):
 
         data = VoiceData(packet, member, pcm=pcm)
 
-        self.sink.write(member, data)
+        try:
+            self.sink.write(member, data)
+        except Exception:
+            log.exception('Error writing to %s in %s', self.sink, self.name)
+            self.stop(wait=False)
+            return
+
         self._last_seq = packet.sequence
         self._last_ts = packet.timestamp
 
@@ -342,6 +355,8 @@ class PacketDecoder(threading.Thread):
 
             with self._lock:
                 self._process_packet(packet)
+        else:
+            self.flush()
 
     def run(self) -> None:
         try:
@@ -349,9 +364,14 @@ class PacketDecoder(threading.Thread):
         except Exception:
             log.exception("Error in %s", self.name)
 
-    def stop(self, *, wait: Optional[float] = None) -> None:
+    def stop(self, *, wait: Union[float, bool] = True) -> None:
         self._end_thread.set()
-        self.join(wait)  # is this necesary, useful even?
+        if wait is False:
+            return
+        elif wait is True:
+            self.join()
+        else:
+            self.join(wait)
 
 
 class _BufferProxy:
@@ -372,6 +392,9 @@ class _BufferProxy:
 
     def __len__(self) -> int:
         return len(self._buffer)
+
+    def __iter__(self):
+        return iter(self._buffer)
 
     def pop(self, *, timeout: float = 0.1) -> Optional[RTPPacket]:
         if self._buffer:
