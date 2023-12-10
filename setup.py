@@ -24,6 +24,12 @@ if version.endswith(('a', 'b', 'rc')):
 with open('README.md') as f:
     readme = f.read()
 
+extras_require = {
+    'extras': [
+        'SpeechRecognition',
+    ]
+}
+
 setup(
     name='discord-ext-voice_recv',
     author='Imayhaveborkedit',
@@ -37,7 +43,7 @@ setup(
     include_package_data=True,
     python_requires='>=3.8',
     install_requires=['discord.py[voice]>2.3'],
-    extras_require=None,
+    extras_require=extras_require,
     zip_safe=False,
     classifiers=[
         'Development Status :: 3 - Alpha',

@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import logging
 
+from ..sinks import AudioSink
+
 log = logging.getLogger(__name__)
+
+__all__ = [
+    'SpeechRecognitionSink',
+]
 
 try:
     import speech_recognition as sr  # type: ignore
 except ImportError:
-    log.info('speech_recognition module not found, not generating SpeechRecognitionSink')
-    __all__ = []
+
+    def SpeechRecognitionSink(**kwargs) -> AudioSink:
+        """A stub for when the SpeechRecognition module isn't found."""
+        raise RuntimeError('The SpeechRecognition module is required to use this sink.')
+
 else:
     import time
     import array
@@ -19,7 +28,6 @@ else:
 
     from collections import defaultdict
 
-    from ..sinks import AudioSink
     from ..rtp import SilencePacket
 
     from typing import TYPE_CHECKING, TypedDict
@@ -59,16 +67,12 @@ else:
         SRProcessDataCB = Callable[[sr.Recognizer, sr.AudioData, User], Optional[str]]
         SRTextCB = Callable[[User, str], Any]
 
-    __all__ = [
-        'SpeechRecognitionSink',
-    ]
-
     class _StreamData(TypedDict):
         stopper: Optional[SRStopper]
         recognizer: sr.Recognizer
         buffer: array.array[int]
 
-    class SpeechRecognitionSink(AudioSink):
+    class SpeechRecognitionSink(AudioSink):  # type: ignore
         def __init__(
             self,
             *,
