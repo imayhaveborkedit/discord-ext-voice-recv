@@ -37,6 +37,9 @@ The overall API is designed to mirror the discord.py voice send API, with `Audio
 ### Convenient included utilities
 Batteries included in the form of useful built in `AudioSinks`.  Some to match their `AudioSource` counterpart, some I merely considered useful.  See... uh... TODO.
 
+### Optional extras
+Slightly more complex included batteries that depend on external modules.  These live in `voice_recv.extras`.  For example, `voice_recv.extras.SpeechRecognitionSink` can be used if the speech_recognition module is available, and can be installed by adding the `extras` optional dependency during install, ex: `pip install discord-ext-voice-recv[extras]`.  More information will be added in the future.
+
 ### More or less typed
 It's probably fine.
 
