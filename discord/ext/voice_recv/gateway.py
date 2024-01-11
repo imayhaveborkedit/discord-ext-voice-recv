@@ -65,15 +65,17 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
 
     elif op == self.SESSION_DESCRIPTION:
         if vc._reader:
-            vc._reader.update_secret_box()
+            # This needs a typing fix in dpy
+            vc._reader.update_secret_key(bytes(self.secret_key)) # type: ignore
 
     elif op == self.SPEAKING:
         # this event refers to the speaking MODE, e.g. priority speaker
+        # it also sends the user's ssrc
         uid = int(data['user_id'])
         ssrc = data['ssrc']
-        state = SpeakingState.try_value(data['speaking'])  # type: ignore
         vc._add_ssrc(uid, ssrc)
         member = vc.guild.get_member(uid)
+        state = SpeakingState.try_value(data['speaking'])  # type: ignore
         vc.dispatch("voice_member_speaking_state", member, ssrc, state)
 
     # aka VIDEO

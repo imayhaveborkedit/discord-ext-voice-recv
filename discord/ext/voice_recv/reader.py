@@ -22,8 +22,9 @@ except ImportError as e:
 if TYPE_CHECKING:
     from typing import Optional, Callable, Any, Dict
     from discord import Member
+    from discord.types.voice import SupportedModes
     from .voice_client import VoiceRecvClient
-    from .rtp import RTPPacket, RTCPPacket, RealPacket
+    from .rtp import RTPPacket
 
     DecryptRTP = Callable[[RTPPacket], bytes]
     DecryptRTCP = Callable[[bytes], bytes]
@@ -48,20 +49,56 @@ class AudioReader:
         # No need for the whole set_sink() call
         self.sink._voice_client = client
 
-        self.box: nacl.secret.SecretBox = nacl.secret.SecretBox(bytes(client.secret_key))
-        self.decrypt_rtp: DecryptRTP = getattr(self, '_decrypt_rtp_' + client.mode)
-        self.decrypt_rtcp: DecryptRTCP = getattr(self, '_decrypt_rtcp_' + client.mode)
-
-        self.router: PacketRouter = PacketRouter(sink)
         self.active: bool = False
         self.error: Optional[Exception] = None
+        self.router: PacketRouter = PacketRouter(sink)
+        self.decryptor: PacketDecryptor = PacketDecryptor(client.mode, bytes(client.secret_key))
+        self.speaking_timer: SpeakingTimer = SpeakingTimer(self)
 
-        self.speaking_timer: threading.Thread = threading.Thread(
-            target=self._speaking_timer_loop, daemon=True, name=f'speaking-timer-{id(self):x}'
-        )
-        self.speaking_timer_event: threading.Event = threading.Event()
-        self.speaking_timeout_delay: float = 0.2
-        self.last_speaking_state: Dict[int, bool] = {}
+    def is_listening(self) -> bool:
+        return self.active
+
+    def update_secret_key(self, secret_key: bytes) -> None:
+        self.decryptor.update_secret_key(secret_key)
+
+    def start(self) -> None:
+        if self.active:
+            log.debug('Reader is already started', exc_info=True)
+            return
+
+        self.speaking_timer.start()
+        self.client._connection.add_socket_listener(self.callback)
+        self.active = True
+
+    def stop(self) -> None:
+        if not self.active:
+            log.debug('Tried to stop an inactive reader', exc_info=True)
+            return
+
+        self.client._connection.remove_socket_listener(self.callback)
+        self.active = False
+        self.speaking_timer.notify()
+
+        threading.Thread(target=self._stop, name=f'audioreader-stopper-{id(self):x}').start()
+
+    def _stop(self) -> None:
+        try:
+            self.router.stop()
+        except Exception as e:
+            self.error = e
+            log.exception('Error stopping packet router')
+
+        if self.after:
+            try:
+                self.after(self.error)
+            except Exception:
+                log.exception('Error calling listener after function')
+
+        for sink in self.sink.root.walk_children(with_self=True):
+            try:
+                sink.cleanup()
+            except Exception:
+                log.exception('Error calling cleanup() for %s', sink)
 
     def set_sink(self, sink: AudioSink) -> AudioSink:
         """Sets the new sink for the reader and returns the old one.
@@ -79,47 +116,73 @@ class AudioReader:
 
         return old_sink
 
-    def update_secret_box(self) -> None:
-        self.box = nacl.secret.SecretBox(bytes(self.client.secret_key))
+    def _is_ip_discovery_packet(self, data: bytes) -> bool:
+        return data[1] == 0x02 and len(data) == 74
 
-    def is_listening(self) -> bool:
-        return self.active
-
-    def start(self) -> None:
-        if self.active:
-            raise RuntimeError('Already started')
-
-        self.speaking_timer.start()
-        self.client._connection.add_socket_listener(self.callback)
-        self.active = True
-
-    def stop(self) -> None:
-        if not self.active:
-            log.info('Tried to stop an inactive reader')
-            return
-
-        self.client._connection.remove_socket_listener(self.callback)
-        self.active = False
-        self._notify_timer()
-
+    def callback(self, packet_data: bytes) -> None:
+        packet = rtp_packet = rtcp_packet = None
         try:
-            self.router.stop()
+            if not rtp.is_rtcp(packet_data):
+                packet = rtp_packet = rtp.decode_rtp(packet_data)
+                packet.decrypted_data = self.decryptor.decrypt_rtp(packet)
+            else:
+                packet = rtcp_packet = rtp.decode_rtcp(self.decryptor.decrypt_rtcp(packet_data))
+
+                if not isinstance(packet, rtp.ReceiverReportPacket):
+                    log.info("Received unexpected rtcp packet: type=%s, %s", packet.type, type(packet))
+                    log.debug("Packet info: packet=%s, data=%s", packet, packet_data)
+        except CryptoError as e:
+            log.error("CryptoError decoding packet data")
+            log.debug("CryptoError details:\n  data=%s\n  secret_key=%s", packet_data, self.client.secret_key)
+            return
         except Exception as e:
-            self.error = e
-            log.exception('Error stopping packet router')
+            if self._is_ip_discovery_packet(packet_data):
+                log.debug("Ignoring ip discovery packet")
+                return
 
-        if self.after:
-            try:
-                self.after(self.error)
-            except Exception:
-                log.exception('Error calling listener after function')
+            log.exception("Error unpacking packet")
+            log.debug(f"Packet data: len={len(packet_data)} data={packet_data!s} ")
+        finally:
+            if self.error:
+                self.stop()
+                return
+            if not packet:
+                return
 
-        # TODO: cleanup in reverse?
-        for sink in self.sink.root.walk_children(with_self=True):
+        if rtcp_packet:
+            self.router.feed_rtcp(rtcp_packet)
+        elif rtp_packet:
+            ssrc = rtp_packet.ssrc
+
+            if ssrc not in self.client._ssrc_to_id:
+                if rtp_packet.is_silence():
+                    # TODO: buffer packets from unknown ssrcs, 50 max?
+                    log.debug("Skipping silence packet for unknown ssrc %s", ssrc)
+                    return
+                else:
+                    log.info("Received packet for unknown ssrc %s:\n%s", ssrc, rtp_packet)
+
+            self.speaking_timer.notify(ssrc)
             try:
-                sink.cleanup()
-            except Exception:
-                log.exception('Error calling cleanup() for %s', sink)
+                self.router.feed_rtp(rtp_packet)
+            except Exception as e:
+                log.exception('Error processing rtp packet')
+                self.error = e
+                self.stop()
+
+
+class PacketDecryptor:
+    def __init__(self, mode: SupportedModes, secret_key: bytes) -> None:
+        try:
+            self.decrypt_rtp: DecryptRTP = getattr(self, '_decrypt_rtp_' + mode)
+            self.decrypt_rtcp: DecryptRTCP = getattr(self, '_decrypt_rtcp_' + mode)
+        except AttributeError as e:
+            raise NotImplementedError(mode) from e
+
+        self.box: nacl.secret.SecretBox = nacl.secret.SecretBox(bytes(secret_key))
+
+    def update_secret_key(self, secret_key: bytes) -> None:
+        self.box = nacl.secret.SecretBox(bytes(secret_key))
 
     def _decrypt_rtp_xsalsa20_poly1305(self, packet: RTPPacket) -> bytes:
         nonce = bytearray(24)
@@ -177,63 +240,61 @@ class AudioReader:
 
         return header + result
 
-    def callback(self, packet_data: bytes) -> None:
-        packet = None
-        rtcp = False
-        try:
-            if not rtp.is_rtcp(packet_data):
-                packet = rtp.decode_rtp(packet_data)
-                packet.decrypted_data = self.decrypt_rtp(packet)
-            else:
-                rtcp = True
-                packet = rtp.decode_rtcp(self.decrypt_rtcp(packet_data))
 
-                if not isinstance(packet, rtp.ReceiverReportPacket):
-                    log.warning("Received unexpected rtcp packet type%s", f"\n{'*'*78}\n{packet}\n{'*'*78}")
-        except CryptoError as e:
-            self.error = e
-            msg = "CryptoError decoding data:\n  packet=%s\n  packet_data=%s"
-            log.exception(msg, packet, packet_data)
+class SpeakingTimer(threading.Thread):
+    def __init__(self, reader: AudioReader):
+        super().__init__(daemon=True, name=f'speaking-timer-{id(self):x}')
+
+        self.reader: AudioReader = reader
+        self.client = reader.client
+
+        self.speaking_timeout_delay: float = 0.2
+        self.last_speaking_state: Dict[int, bool] = {}
+        self.speaking_timer_event: threading.Event = threading.Event()
+        self._active: threading.Event = threading.Event()
+        self._active.set()
+
+    def _lookup_member(self, ssrc: int) -> Optional[Member]:
+        whoid = self.client._get_id_from_ssrc(ssrc)
+        if not whoid:
             return
-        except Exception as e:
-            self.error = e
-            log.exception("Error unpacking packet")
-        finally:
-            if self.error:
-                self.stop()
-                return
-            if not packet:
-                return
+        return self.client.guild.get_member(whoid)
 
-        if rtcp:
-            self.router.feed_rtcp(packet)  # type: ignore
-        else:
-            _packet: RTPPacket = packet  # type: ignore  # dumb typing hack
+    def maybe_dispatch_speaking_start(self, ssrc: int) -> None:
+        tlast = self.client._speaking_cache.get(ssrc)
+        if tlast is None or tlast + self.speaking_timeout_delay < time.perf_counter():
+            self.dispatch_speaking_start(ssrc)
 
-            if _packet.ssrc not in self.client._ssrc_to_id:
-                if _packet.is_silence():
-                    # TODO: make a list of ssrcs so this only gets logged once?
-                    log.debug("Skipping silence packet for unknown ssrc %s", _packet.ssrc)
-                    return
-                else:
-                    log.info("Received packet for unknown ssrc %s:\n%s", _packet.ssrc, _packet)
+    def dispatch_speaking_start(self, ssrc: int) -> None:
+        who = self._lookup_member(ssrc)
+        if not who:
+            log.warning("Unknown ssrc %s", ssrc)
+            return
 
-            self.maybe_dispatch_speaking_start(_packet.ssrc)
-            self.client._speaking_cache[_packet.ssrc] = time.perf_counter()
-            self.last_speaking_state[_packet.ssrc] = True
-            self._notify_timer()
-            try:
-                self.router.feed_rtp(_packet)
-            except Exception as e:
-                log.exception('Error processing rtp packet')
-                self.error = e
-                self.stop()
+        self.reader.router.dispatch('voice_member_speaking_start', who)
 
-    def _notify_timer(self) -> None:
+    def dispatch_speaking_stop(self, ssrc: int) -> None:
+        who = self._lookup_member(ssrc)
+        if not who:
+            log.warning("Unknown ssrc %s", ssrc)
+            return
+
+        self.reader.router.dispatch('voice_member_speaking_stop', who)
+
+    def notify(self, ssrc: Optional[int] = None) -> None:
+        if ssrc is not None:
+            self.last_speaking_state[ssrc] = True
+            self.maybe_dispatch_speaking_start(ssrc)
+            self.client._speaking_cache[ssrc] = time.perf_counter()
+
         self.speaking_timer_event.set()
         self.speaking_timer_event.clear()
 
-    def _speaking_timer_loop(self) -> None:
+    def stop(self) -> None:
+        self._active.clear()
+        self.notify()
+
+    def run(self) -> None:
         _i1 = itemgetter(1)
 
         def get_next_entry():
@@ -246,7 +307,7 @@ class AudioReader:
             return None, None
 
         self.speaking_timer_event.wait()
-        while self.active:
+        while self._active.is_set():
             if not self.client._speaking_cache:
                 self.speaking_timer_event.wait()
 
@@ -265,30 +326,3 @@ class AudioReader:
 
             self.dispatch_speaking_stop(ssrc)
             self.last_speaking_state[ssrc] = False
-
-    def maybe_dispatch_speaking_start(self, ssrc: int) -> None:
-        tlast = self.client._speaking_cache.get(ssrc)
-        if tlast is None or tlast + self.speaking_timeout_delay < time.perf_counter():
-            self.dispatch_speaking_start(ssrc)
-
-    def dispatch_speaking_start(self, ssrc: int) -> None:
-        who = self._lookup_member(ssrc)
-        if not who:
-            log.warning("Unknown ssrc %s", ssrc)
-            return
-
-        self.router.dispatch('voice_member_speaking_start', who)
-
-    def dispatch_speaking_stop(self, ssrc: int) -> None:
-        who = self._lookup_member(ssrc)
-        if not who:
-            log.warning("Unknown ssrc %s", ssrc)
-            return
-
-        self.router.dispatch('voice_member_speaking_stop', who)
-
-    def _lookup_member(self, ssrc: int) -> Optional[Member]:
-        whoid = self.client._get_id_from_ssrc(ssrc)
-        if not whoid:
-            return
-        return self.client.guild.get_member(whoid)
