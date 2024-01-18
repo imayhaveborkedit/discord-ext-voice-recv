@@ -38,22 +38,22 @@ __all__ = [
 
 
 class AudioReader:
-    def __init__(self, sink: AudioSink, client: VoiceRecvClient, *, after: Optional[AfterCB] = None):
+    def __init__(self, sink: AudioSink, voice_client: VoiceRecvClient, *, after: Optional[AfterCB] = None):
         if after is not None and not callable(after):
             raise TypeError('Expected a callable for the "after" parameter.')
 
         self.sink: AudioSink = sink
-        self.client: VoiceRecvClient = client
+        self.voice_client: VoiceRecvClient = voice_client
         self.after: Optional[AfterCB] = after
 
         # No need for the whole set_sink() call
-        self.sink._voice_client = client
+        self.sink._voice_client = voice_client
 
         self.active: bool = False
         self.error: Optional[Exception] = None
         self.packet_router: PacketRouter = PacketRouter(sink)
         self.event_router: SinkEventRouter = SinkEventRouter(sink)
-        self.decryptor: PacketDecryptor = PacketDecryptor(client.mode, bytes(client.secret_key))
+        self.decryptor: PacketDecryptor = PacketDecryptor(voice_client.mode, bytes(voice_client.secret_key))
         self.speaking_timer: SpeakingTimer = SpeakingTimer(self)
 
     def is_listening(self) -> bool:
@@ -68,7 +68,7 @@ class AudioReader:
             return
 
         self.speaking_timer.start()
-        self.client._connection.add_socket_listener(self.callback)
+        self.voice_client._connection.add_socket_listener(self.callback)
         self.active = True
 
     def stop(self) -> None:
@@ -76,7 +76,7 @@ class AudioReader:
             log.debug('Tried to stop an inactive reader', exc_info=True)
             return
 
-        self.client._connection.remove_socket_listener(self.callback)
+        self.voice_client._connection.remove_socket_listener(self.callback)
         self.active = False
         self.speaking_timer.notify()
 
@@ -114,14 +114,14 @@ class AudioReader:
         # This whole function is potentially very racy
         old_sink = self.sink
         old_sink._voice_client = None
-        sink._voice_client = self.client
+        sink._voice_client = self.voice_client
         self.packet_router.set_sink(sink)
         self.sink = sink
 
         return old_sink
 
     def _is_ip_discovery_packet(self, data: bytes) -> bool:
-        return data[1] == 0x02 and len(data) == 74
+        return len(data) == 74 and data[1] == 0x02
 
     def callback(self, packet_data: bytes) -> None:
         packet = rtp_packet = rtcp_packet = None
@@ -134,10 +134,10 @@ class AudioReader:
 
                 if not isinstance(packet, rtp.ReceiverReportPacket):
                     log.info("Received unexpected rtcp packet: type=%s, %s", packet.type, type(packet))
-                    log.debug("Packet info: packet=%s, data=%s", packet, packet_data)
+                    log.debug("Packet info:\n  packet=%s\n  data=%s", packet, packet_data)
         except CryptoError as e:
             log.error("CryptoError decoding packet data")
-            log.debug("CryptoError details:\n  data=%s\n  secret_key=%s", packet_data, self.client.secret_key)
+            log.debug("CryptoError details:\n  data=%s\n  secret_key=%s", packet_data, self.voice_client.secret_key)
             return
         except Exception as e:
             if self._is_ip_discovery_packet(packet_data):
@@ -145,7 +145,7 @@ class AudioReader:
                 return
 
             log.exception("Error unpacking packet")
-            log.debug(f"Packet data: len={len(packet_data)} data={packet_data!s} ")
+            log.debug("Packet data: len=%s data=%s", len(packet_data), packet_data)
         finally:
             if self.error:
                 self.stop()
@@ -158,9 +158,10 @@ class AudioReader:
         elif rtp_packet:
             ssrc = rtp_packet.ssrc
 
-            if ssrc not in self.client._ssrc_to_id:
+            if ssrc not in self.voice_client._ssrc_to_id:
                 if rtp_packet.is_silence():
                     # TODO: buffer packets from unknown ssrcs, 50 max?
+                    # also remove this log later its pointless
                     log.debug("Skipping silence packet for unknown ssrc %s", ssrc)
                     return
                 else:
@@ -250,8 +251,7 @@ class SpeakingTimer(threading.Thread):
         super().__init__(daemon=True, name=f'speaking-timer-{id(self):x}')
 
         self.reader: AudioReader = reader
-        self.client = reader.client
-
+        self.voice_client = reader.voice_client
         self.speaking_timeout_delay: float = 0.2
         self.last_speaking_state: Dict[int, bool] = {}
         self.speaking_timer_event: threading.Event = threading.Event()
@@ -259,13 +259,13 @@ class SpeakingTimer(threading.Thread):
         self._active.set()
 
     def _lookup_member(self, ssrc: int) -> Optional[Member]:
-        whoid = self.client._get_id_from_ssrc(ssrc)
+        whoid = self.voice_client._get_id_from_ssrc(ssrc)
         if not whoid:
             return
-        return self.client.guild.get_member(whoid)
+        return self.voice_client.guild.get_member(whoid)
 
     def maybe_dispatch_speaking_start(self, ssrc: int) -> None:
-        tlast = self.client._speaking_cache.get(ssrc)
+        tlast = self.voice_client._speaking_cache.get(ssrc)
         if tlast is None or tlast + self.speaking_timeout_delay < time.perf_counter():
             self.dispatch_speaking_start(ssrc)
 
@@ -275,7 +275,7 @@ class SpeakingTimer(threading.Thread):
             log.warning("Unknown ssrc %s", ssrc)
             return
 
-        self.client.dispatch_sink('voice_member_speaking_start', who)
+        self.voice_client.dispatch_sink('voice_member_speaking_start', who)
 
     def dispatch_speaking_stop(self, ssrc: int) -> None:
         who = self._lookup_member(ssrc)
@@ -283,13 +283,13 @@ class SpeakingTimer(threading.Thread):
             log.warning("Unknown ssrc %s", ssrc)
             return
 
-        self.client.dispatch_sink('voice_member_speaking_stop', who)
+        self.voice_client.dispatch_sink('voice_member_speaking_stop', who)
 
     def notify(self, ssrc: Optional[int] = None) -> None:
         if ssrc is not None:
             self.last_speaking_state[ssrc] = True
             self.maybe_dispatch_speaking_start(ssrc)
-            self.client._speaking_cache[ssrc] = time.perf_counter()
+            self.voice_client._speaking_cache[ssrc] = time.perf_counter()
 
         self.speaking_timer_event.set()
         self.speaking_timer_event.clear()
@@ -302,7 +302,7 @@ class SpeakingTimer(threading.Thread):
         _i1 = itemgetter(1)
 
         def get_next_entry():
-            cache = sorted(self.client._speaking_cache.items(), key=_i1)
+            cache = sorted(self.voice_client._speaking_cache.items(), key=_i1)
             for ssrc, tlast in cache:
                 # only return pair if speaking
                 if self.last_speaking_state.get(ssrc):
@@ -312,7 +312,7 @@ class SpeakingTimer(threading.Thread):
 
         self.speaking_timer_event.wait()
         while self._active.is_set():
-            if not self.client._speaking_cache:
+            if not self.voice_client._speaking_cache:
                 self.speaking_timer_event.wait()
 
             tnow = time.perf_counter()

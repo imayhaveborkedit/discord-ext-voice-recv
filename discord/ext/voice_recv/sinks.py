@@ -442,7 +442,7 @@ class FFmpegSink(AudioSink):
                 self.on_error(self, e, data)
 
     def _spawn_process(self, args: Any, **subprocess_kwargs: Any) -> subprocess.Popen:
-        log.debug('Spawning ffmpeg process with command: %s', args)
+        log.debug('Spawning ffmpeg process with command: %s, kwargs: %s', args, subprocess_kwargs)
         process = None
         try:
             process = subprocess.Popen(args, creationflags=discord.player.CREATE_NO_WINDOW, **subprocess_kwargs)

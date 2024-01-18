@@ -6,9 +6,9 @@ import logging
 
 from discord.enums import SpeakingState
 
-from .video import VoiceVideoStreams
+from .video import VoiceVideoStreams, VoiceVideoPayload
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from typing import Dict, Any
@@ -59,14 +59,12 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
             log.info("WS payload has extra keys: %s", m)
 
     if op == self.READY:
-        # why do i assign this
-        # self.ssrc: int = data['ssrc']  # type#: ignore
-        vc._add_ssrc(vc.client.user.id, data['ssrc'])  # type: ignore
+        vc._add_ssrc(vc.guild.me.id, data['ssrc'])
 
     elif op == self.SESSION_DESCRIPTION:
         if vc._reader:
-            # This needs a typing fix in dpy
-            vc._reader.update_secret_key(bytes(self.secret_key)) # type: ignore
+            # TODO: remove bytes cast once type is fixed in dpy
+            vc._reader.update_secret_key(bytes(self.secret_key))  # type: ignore
 
     elif op == self.SPEAKING:
         # this event refers to the speaking MODE, e.g. priority speaker
@@ -83,7 +81,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
         uid = int(data['user_id'])
         vc._add_ssrc(uid, data['audio_ssrc'])
         member = vc.guild.get_member(uid)
-        streams = VoiceVideoStreams(data=data, vc=vc)  # type: ignore
+        streams = VoiceVideoStreams(data=cast(VoiceVideoPayload, data), vc=vc)
         vc.dispatch("voice_member_video", member, streams)
 
     elif op == self.CLIENT_DISCONNECT:
@@ -97,7 +95,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
         vc._remove_ssrc(user_id=uid)
         member = vc.guild.get_member(uid)
         vc.dispatch("voice_member_disconnect", member, ssrc)
-        vc._speaking_cache.pop(ssrc, None)  # type: ignore
+        vc._speaking_cache.pop(ssrc or -1, None)  # typing hack
 
     elif op == FLAGS:
         uid = int(data['user_id'])

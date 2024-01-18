@@ -131,7 +131,8 @@ else:
                 log.debug("Got %s, %s, %s", audio, audio.sample_rate, audio.sample_width)
                 text: Optional[str] = None
                 try:
-                    func = getattr(recognizer, 'recognize_' + self.default_recognizer, recognizer.recognize_google)
+                    # they changed recognize_google to be optionally assigned at runtime...
+                    func = getattr(recognizer, 'recognize_' + self.default_recognizer, recognizer.recognize_google) # type: ignore
                     text = func(audio)  # type: ignore
                 except sr.UnknownValueError:
                     log.debug("Bad speech chunk")
