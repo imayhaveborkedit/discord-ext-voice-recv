@@ -59,7 +59,7 @@ class VoiceRecvClient(discord.VoiceClient):
         # if we joined, left, or switched channels, reset the decoders
         if self._reader and channel_id != old_channel_id:
             log.debug("Destroying all decoders in guild %s", self.guild.id)
-            self._reader.router.destroy_all_decoders()
+            self._reader.packet_router.destroy_all_decoders()
 
     def add_listener(self, func: CoroFunc, *, name: str = MISSING) -> None:
         name = func.__name__ if name is MISSING else name
@@ -100,10 +100,12 @@ class VoiceRecvClient(discord.VoiceClient):
         for coro in self._event_listeners.get(event_name, []):
             self._schedule_event(coro, event_name, *args, **kwargs)
 
-        if self._reader:
-            self._reader.router.dispatch(event, *args, **kwargs)
-
+        self.dispatch_sink(event, *args, **kwargs)
         self.client.dispatch(event, *args, **kwargs)
+
+    def dispatch_sink(self, event: str, /, *args: Any, **kwargs: Any) -> None:
+        if self._reader:
+            self._reader.event_router.dispatch(event, *args, **kwargs)
 
     def cleanup(self) -> None:
         super().cleanup()
@@ -115,7 +117,7 @@ class VoiceRecvClient(discord.VoiceClient):
         self._id_to_ssrc[user_id] = ssrc
 
         if self._reader:
-            self._reader.router.notify(ssrc, user_id)
+            self._reader.packet_router.set_user_id(ssrc, user_id)
 
     def _remove_ssrc(self, *, user_id: int) -> None:
         ssrc = self._id_to_ssrc.pop(user_id, None)

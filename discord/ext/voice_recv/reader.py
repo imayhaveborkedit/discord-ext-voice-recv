@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from . import rtp
 from .sinks import AudioSink
-from .opus import PacketRouter
+from .router import PacketRouter, SinkEventRouter
 
 try:
     import nacl.secret
@@ -51,7 +51,8 @@ class AudioReader:
 
         self.active: bool = False
         self.error: Optional[Exception] = None
-        self.router: PacketRouter = PacketRouter(sink)
+        self.packet_router: PacketRouter = PacketRouter(sink)
+        self.event_router: SinkEventRouter = SinkEventRouter(sink)
         self.decryptor: PacketDecryptor = PacketDecryptor(client.mode, bytes(client.secret_key))
         self.speaking_timer: SpeakingTimer = SpeakingTimer(self)
 
@@ -83,10 +84,16 @@ class AudioReader:
 
     def _stop(self) -> None:
         try:
-            self.router.stop()
+            self.packet_router.stop()
         except Exception as e:
             self.error = e
             log.exception('Error stopping packet router')
+
+        try:
+            self.event_router.stop()
+        except Exception as e:
+            self.error = e
+            log.exception('Error stopping event router')
 
         if self.after:
             try:
@@ -104,14 +111,11 @@ class AudioReader:
         """Sets the new sink for the reader and returns the old one.
         Does not call cleanup()
         """
-
         # This whole function is potentially very racy
-
         old_sink = self.sink
         old_sink._voice_client = None
-
         sink._voice_client = self.client
-        self.router.set_sink(sink)
+        self.packet_router.set_sink(sink)
         self.sink = sink
 
         return old_sink
@@ -150,7 +154,7 @@ class AudioReader:
                 return
 
         if rtcp_packet:
-            self.router.feed_rtcp(rtcp_packet)
+            self.packet_router.feed_rtcp(rtcp_packet)
         elif rtp_packet:
             ssrc = rtp_packet.ssrc
 
@@ -164,7 +168,7 @@ class AudioReader:
 
             self.speaking_timer.notify(ssrc)
             try:
-                self.router.feed_rtp(rtp_packet)
+                self.packet_router.feed_rtp(rtp_packet)
             except Exception as e:
                 log.exception('Error processing rtp packet')
                 self.error = e
@@ -271,7 +275,7 @@ class SpeakingTimer(threading.Thread):
             log.warning("Unknown ssrc %s", ssrc)
             return
 
-        self.reader.router.dispatch('voice_member_speaking_start', who)
+        self.client.dispatch_sink('voice_member_speaking_start', who)
 
     def dispatch_speaking_stop(self, ssrc: int) -> None:
         who = self._lookup_member(ssrc)
@@ -279,7 +283,7 @@ class SpeakingTimer(threading.Thread):
             log.warning("Unknown ssrc %s", ssrc)
             return
 
-        self.reader.router.dispatch('voice_member_speaking_stop', who)
+        self.client.dispatch_sink('voice_member_speaking_stop', who)
 
     def notify(self, ssrc: Optional[int] = None) -> None:
         if ssrc is not None:
