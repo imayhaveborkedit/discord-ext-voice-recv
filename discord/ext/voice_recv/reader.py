@@ -255,8 +255,7 @@ class SpeakingTimer(threading.Thread):
         self.speaking_timeout_delay: float = 0.2
         self.last_speaking_state: Dict[int, bool] = {}
         self.speaking_timer_event: threading.Event = threading.Event()
-        self._active: threading.Event = threading.Event()
-        self._active.set()
+        self._end_thread: threading.Event = threading.Event()
 
     def _lookup_member(self, ssrc: int) -> Optional[Member]:
         whoid = self.voice_client._get_id_from_ssrc(ssrc)
@@ -295,7 +294,7 @@ class SpeakingTimer(threading.Thread):
         self.speaking_timer_event.clear()
 
     def stop(self) -> None:
-        self._active.clear()
+        self._end_thread.set()
         self.notify()
 
     def run(self) -> None:
@@ -311,7 +310,7 @@ class SpeakingTimer(threading.Thread):
             return None, None
 
         self.speaking_timer_event.wait()
-        while self._active.is_set():
+        while not self._end_thread.is_set():
             if not self.voice_client._speaking_cache:
                 self.speaking_timer_event.wait()
 
