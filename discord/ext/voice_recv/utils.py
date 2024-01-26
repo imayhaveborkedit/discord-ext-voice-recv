@@ -1,11 +1,20 @@
 # -*- coding: utf-8 -*-
 
-# May not even be needed if i dont use the dict subclasses
+from __future__ import annotations
 
+import time
 
 from collections import defaultdict
 
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from typing import Callable
+
+    TimeFunc = Callable[[], float]
+
+
+# May not even be needed if i dont use the dict subclasses
 class Bidict(dict):
     """A bi-directional dict"""
 
@@ -94,3 +103,38 @@ class Defaultdict(defaultdict):
 
         self[key] = value = self.default_factory(key)  # type: ignore
         return value
+
+
+class LoopTimer:
+    def __init__(self, delay: float, *, timefunc: TimeFunc = time.perf_counter):
+        self._delay: float = delay
+        self._time: TimeFunc = timefunc
+        self._start: float = 0
+        self._loops: int = 0
+
+    @property
+    def delay(self) -> float:
+        return self._delay
+
+    @property
+    def loops(self) -> int:
+        return self._loops
+
+    @property
+    def start_time(self) -> float:
+        return self._start
+
+    @property
+    def remaining_time(self) -> float:
+        next_time = self._start + self._delay * self._loops
+        return self._delay + (next_time - self._time())
+
+    def start(self) -> None:
+        self._loops = 0
+        self._start = self._time()
+
+    def mark(self) -> None:
+        self._loops += 1
+
+    def sleep(self) -> None:
+        time.sleep(max(0, self.remaining_time))
