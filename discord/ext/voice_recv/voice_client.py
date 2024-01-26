@@ -34,7 +34,7 @@ class VoiceRecvClient(discord.VoiceClient):
     def __init__(self, client: discord.Client, channel: discord.abc.Connectable):
         super().__init__(client, channel)
 
-        self._reader: Optional[AudioReader] = None
+        self._reader: AudioReader = MISSING
         self._ssrc_to_id: Dict[int, int] = {}
         self._id_to_ssrc: Dict[int, int] = {}
         self._event_listeners: Dict[str, list] = {}
@@ -108,6 +108,7 @@ class VoiceRecvClient(discord.VoiceClient):
             self._reader.event_router.dispatch(event, *args, **kwargs)
 
     def cleanup(self) -> None:
+        # TODO: Does the order here matter?
         super().cleanup()
         self._event_listeners.clear()
         self.stop()
@@ -148,13 +149,13 @@ class VoiceRecvClient(discord.VoiceClient):
 
     def is_listening(self) -> bool:
         """Indicates if we're currently receiving audio."""
-        return self._reader is not None and self._reader.is_listening()
+        return self._reader and self._reader.is_listening()
 
     def stop_listening(self) -> None:
         """Stops receiving audio."""
         if self._reader:
             self._reader.stop()
-            self._reader = None
+            self._reader = MISSING
 
     def stop_playing(self) -> None:
         """Stops playing audio."""
@@ -176,7 +177,7 @@ class VoiceRecvClient(discord.VoiceClient):
         if not isinstance(sink, AudioSink):
             raise TypeError('expected AudioSink not {0.__class__.__name__}.'.format(sink))
 
-        if self._reader is None:
+        if not self._reader:
             raise ValueError('Not receiving anything.')
 
         self._reader.set_sink(sink)

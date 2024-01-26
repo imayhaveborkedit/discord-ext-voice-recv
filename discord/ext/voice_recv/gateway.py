@@ -88,7 +88,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
         uid = int(data['user_id'])
         ssrc = vc._get_ssrc_from_id(uid)
 
-        if vc._reader is not None and ssrc is not None:
+        if vc._reader and ssrc is not None:
             log.debug("Destroying decoder for %s, ssrc=%s", uid, ssrc)
             vc._reader.packet_router.destroy_decoder(ssrc)
 
