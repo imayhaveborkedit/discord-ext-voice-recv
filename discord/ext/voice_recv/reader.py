@@ -51,8 +51,8 @@ class AudioReader:
 
         self.active: bool = False
         self.error: Optional[Exception] = None
-        self.packet_router: PacketRouter = PacketRouter(sink)
-        self.event_router: SinkEventRouter = SinkEventRouter(sink)
+        self.packet_router: PacketRouter = PacketRouter(sink, self)
+        self.event_router: SinkEventRouter = SinkEventRouter(sink, self)
         self.decryptor: PacketDecryptor = PacketDecryptor(voice_client.mode, bytes(voice_client.secret_key))
         self.speaking_timer: SpeakingTimer = SpeakingTimer(self)
 
@@ -68,6 +68,8 @@ class AudioReader:
             return
 
         self.speaking_timer.start()
+        self.event_router.start()
+        self.packet_router.start()
         self.voice_client._connection.add_socket_listener(self.callback)
         self.active = True
 

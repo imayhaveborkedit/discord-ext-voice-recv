@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import queue
 import logging
-import threading
 
 from typing import TYPE_CHECKING, Final
 
@@ -14,8 +12,8 @@ from .rtp import FakePacket
 from discord.opus import Decoder
 
 if TYPE_CHECKING:
-    from typing import Optional, Tuple, Dict, List, Callable, Any, Union
-    from .rtp import RTPPacket, RTCPPacket, AudioPacket
+    from typing import Optional, Tuple, Dict, Callable, Any
+    from .rtp import RTPPacket, AudioPacket
     from .sinks import AudioSink
     from .router import PacketRouter
     from .voice_client import VoiceRecvClient
@@ -61,7 +59,7 @@ class PacketDecoder:
         self._last_seq: int = 0
 
     @property
-    def sink(self):
+    def sink(self) -> AudioSink:
         return self.router.sink
 
     def _get_user(self, user_id: int) -> Optional[User]:
@@ -72,7 +70,6 @@ class PacketDecoder:
         return self._get_user(self._cached_id) if self._cached_id else None
 
     def push_packet(self, packet: RTPPacket) -> None:
-        # TODO: the stale packet check needs to happen above this level i think
         self._buffer.push(packet)
 
     def pop_data(self, *, timeout: float = BUFFER_TIMEOUT) -> Optional[VoiceData]:
@@ -82,13 +79,17 @@ class PacketDecoder:
 
         return self._process_packet(packet)
 
+    def set_user_id(self, user_id: int) -> None:
+        self._cached_id = user_id
+
     def reset(self) -> None:
         self._buffer.reset()
         self._decoder = None if self.sink.wants_opus() else Decoder()
         self._last_seq = self._last_ts = 0
 
-    def set_user_id(self, user_id: int) -> None:
-        self._cached_id = user_id
+    def destroy(self) -> None:
+        self._buffer.reset()
+        self._decoder = None
 
     def _get_next_packet(self, timeout: float) -> Optional[AudioPacket]:
         packet = self._buffer.pop(timeout=timeout)
