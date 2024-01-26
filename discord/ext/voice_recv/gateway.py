@@ -6,7 +6,7 @@ import logging
 
 from discord.enums import SpeakingState
 
-from .video import VoiceVideoStreams, VoiceVideoPayload
+from .video import VoiceVideoStreams
 
 from typing import TYPE_CHECKING, cast
 
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     from discord.gateway import DiscordVoiceWebSocket
     from .voice_client import VoiceRecvClient
+    from .video import VoiceVideoPayload
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
         uid = int(data['user_id'])
         vc._add_ssrc(uid, data['audio_ssrc'])
         member = vc.guild.get_member(uid)
-        streams = VoiceVideoStreams(data=cast(VoiceVideoPayload, data), vc=vc)
+        streams = VoiceVideoStreams(data=cast('VoiceVideoPayload', data), vc=vc)
         vc.dispatch("voice_member_video", member, streams)
 
     elif op == self.CLIENT_DISCONNECT:
