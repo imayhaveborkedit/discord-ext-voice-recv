@@ -38,7 +38,6 @@ class VoiceRecvClient(discord.VoiceClient):
         self._ssrc_to_id: Dict[int, int] = {}
         self._id_to_ssrc: Dict[int, int] = {}
         self._event_listeners: Dict[str, list] = {}
-        self._speaking_cache: Dict[int, float] = {}
 
     def create_connection_state(self) -> VoiceConnectionState:
         return VoiceConnectionState(self, hook=hook)
@@ -123,6 +122,7 @@ class VoiceRecvClient(discord.VoiceClient):
     def _remove_ssrc(self, *, user_id: int) -> None:
         ssrc = self._id_to_ssrc.pop(user_id, None)
         if ssrc:
+            self._reader.speaking_timer.drop_ssrc(ssrc)
             self._ssrc_to_id.pop(ssrc, None)
 
     def _get_ssrc_from_id(self, user_id: int) -> Optional[int]:
@@ -189,8 +189,5 @@ class VoiceRecvClient(discord.VoiceClient):
         if ssrc is None:
             return
 
-        last_packet_time = self._speaking_cache.get(ssrc)
-        if last_packet_time is None:
-            return
-
-        return time.perf_counter() - last_packet_time < 0.02
+        if self._reader:
+            return self._reader.speaking_timer.get_speaking(ssrc)

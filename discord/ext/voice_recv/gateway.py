@@ -96,7 +96,6 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
         vc._remove_ssrc(user_id=uid)
         member = vc.guild.get_member(uid)
         vc.dispatch("voice_member_disconnect", member, ssrc)
-        vc._speaking_cache.pop(ssrc or -1, None)  # typing hack
 
     elif op == FLAGS:
         uid = int(data['user_id'])

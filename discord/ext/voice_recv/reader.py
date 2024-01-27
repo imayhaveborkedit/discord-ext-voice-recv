@@ -20,7 +20,8 @@ except ImportError as e:
     raise RuntimeError("pynacl is required") from e
 
 if TYPE_CHECKING:
-    from typing import Optional, Callable, Any, Dict
+    from typing import Optional, Callable, Any, Dict, Literal
+
     from discord import Member
     from discord.types.voice import SupportedModes
     from .voice_client import VoiceRecvClient
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     DecryptRTP = Callable[[RTPPacket], bytes]
     DecryptRTCP = Callable[[bytes], bytes]
     AfterCB = Callable[[Optional[Exception]], Any]
+    SpeakingEvent = Literal['voice_member_speaking_start', 'voice_member_speaking_stop']
 
 log = logging.getLogger(__name__)
 
@@ -256,44 +258,43 @@ class SpeakingTimer(threading.Thread):
         self.voice_client = reader.voice_client
         self.speaking_timeout_delay: float = 0.2
         self.last_speaking_state: Dict[int, bool] = {}
+        self.speaking_cache: Dict[int, float] = {}
         self.speaking_timer_event: threading.Event = threading.Event()
         self._end_thread: threading.Event = threading.Event()
 
     def _lookup_member(self, ssrc: int) -> Optional[Member]:
         whoid = self.voice_client._get_id_from_ssrc(ssrc)
-        if not whoid:
-            return
-        return self.voice_client.guild.get_member(whoid)
+        return self.voice_client.guild.get_member(whoid) if whoid else None
 
     def maybe_dispatch_speaking_start(self, ssrc: int) -> None:
-        tlast = self.voice_client._speaking_cache.get(ssrc)
+        tlast = self.speaking_cache.get(ssrc)
         if tlast is None or tlast + self.speaking_timeout_delay < time.perf_counter():
-            self.dispatch_speaking_start(ssrc)
+            self.dispatch('voice_member_speaking_start', ssrc)
 
-    def dispatch_speaking_start(self, ssrc: int) -> None:
+    def dispatch(self, event: SpeakingEvent, ssrc: int) -> None:
         who = self._lookup_member(ssrc)
         if not who:
-            log.warning("Unknown ssrc %s", ssrc)
             return
-
-        self.voice_client.dispatch_sink('voice_member_speaking_start', who)
-
-    def dispatch_speaking_stop(self, ssrc: int) -> None:
-        who = self._lookup_member(ssrc)
-        if not who:
-            log.warning("Unknown ssrc %s", ssrc)
-            return
-
-        self.voice_client.dispatch_sink('voice_member_speaking_stop', who)
+        self.voice_client.dispatch_sink(event, who)
 
     def notify(self, ssrc: Optional[int] = None) -> None:
         if ssrc is not None:
             self.last_speaking_state[ssrc] = True
             self.maybe_dispatch_speaking_start(ssrc)
-            self.voice_client._speaking_cache[ssrc] = time.perf_counter()
+            self.speaking_cache[ssrc] = time.perf_counter()
 
         self.speaking_timer_event.set()
         self.speaking_timer_event.clear()
+
+    def drop_ssrc(self, ssrc: int) -> None:
+        self.speaking_cache.pop(ssrc, None)
+        state = self.last_speaking_state.pop(ssrc, None)
+        if state:
+            self.dispatch('voice_member_speaking_stop', ssrc)
+        self.notify()
+
+    def get_speaking(self, ssrc: int) -> Optional[bool]:
+        return self.last_speaking_state.get(ssrc)
 
     def stop(self) -> None:
         self._end_thread.set()
@@ -303,7 +304,7 @@ class SpeakingTimer(threading.Thread):
         _i1 = itemgetter(1)
 
         def get_next_entry():
-            cache = sorted(self.voice_client._speaking_cache.items(), key=_i1)
+            cache = sorted(self.speaking_cache.items(), key=_i1)
             for ssrc, tlast in cache:
                 # only return pair if speaking
                 if self.last_speaking_state.get(ssrc):
@@ -313,7 +314,7 @@ class SpeakingTimer(threading.Thread):
 
         self.speaking_timer_event.wait()
         while not self._end_thread.is_set():
-            if not self.voice_client._speaking_cache:
+            if not self.speaking_cache:
                 self.speaking_timer_event.wait()
 
             tnow = time.perf_counter()
@@ -329,5 +330,5 @@ class SpeakingTimer(threading.Thread):
             if time.perf_counter() < tlast + self.speaking_timeout_delay:
                 continue
 
-            self.dispatch_speaking_stop(ssrc)
+            self.dispatch('voice_member_speaking_stop', ssrc)
             self.last_speaking_state[ssrc] = False
