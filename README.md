@@ -18,7 +18,7 @@ python -m pip install git+https://github.com/imayhaveborkedit/discord-ext-voice-
 
 Naturally, this extension depends on `discord.py` being installed with voice support (`pynacl`).
 
-**Note**: This extension requires discord.py 2.4, which as of now has not been uploaded to pypi.  You may need to install discord.py from github.
+**Note**: This extension requires discord.py 2.4.
 
 ## Example
 See the [example script](examples/recv.py).
