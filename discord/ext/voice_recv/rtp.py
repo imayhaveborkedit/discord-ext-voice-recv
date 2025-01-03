@@ -184,15 +184,18 @@ class RTPPacket(_PacketCmpMixin):
         self.extension = None
         self.extension_data: Dict[int, bytes] = {}
 
-        self.header = data[:12]
-        self.data = data[12:]
-        self.decrypted_data: Optional[bytes] = None
-
+        offset = 0
         if self.cc:
             fmt = '>%sI' % self.cc
             offset = struct.calcsize(fmt) + 12
             self.csrcs = struct.unpack(fmt, data[12:offset])
-            self.data = data[offset:]
+
+        if self.extended:
+            offset += 4
+
+        self.header = data[:12 + offset]
+        self.data = data[12 + offset:]
+        self.decrypted_data: Optional[bytes] = None
 
         # TODO?: impl padding calculations (though discord doesn't seem to use that bit)
 

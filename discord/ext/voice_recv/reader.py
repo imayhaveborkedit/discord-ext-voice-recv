@@ -14,10 +14,9 @@ from .sinks import AudioSink
 from .router import PacketRouter, SinkEventRouter
 
 try:
-    import nacl.secret
-    from nacl.exceptions import CryptoError
+    import libnacl
 except ImportError as e:
-    raise RuntimeError("pynacl is required") from e
+    raise RuntimeError("libnacl is required") from e
 
 if TYPE_CHECKING:
     from typing import Optional, Callable, Any, Dict, Literal
@@ -139,9 +138,9 @@ class AudioReader:
                 if not isinstance(packet, rtp.ReceiverReportPacket):
                     log.info("Received unexpected rtcp packet: type=%s, %s", packet.type, type(packet))
                     log.debug("Packet info:\n  packet=%s\n  data=%s", packet, packet_data)
-        except CryptoError as e:
+        except ValueError as e:
             log.error("CryptoError decoding packet data")
-            log.debug("CryptoError details:\n  data=%s\n  secret_key=%s", packet_data, self.voice_client.secret_key)
+            log.debug("Error details:\n  data=%s\n  secret_key=%s", packet_data, self.voice_client.secret_key)
             return
         except Exception as e:
             if self._is_ip_discovery_packet(packet_data):
@@ -188,67 +187,58 @@ class PacketDecryptor:
         except AttributeError as e:
             raise NotImplementedError(mode) from e
 
-        self.box: nacl.secret.SecretBox = nacl.secret.SecretBox(bytes(secret_key))
+        self.secret_key = secret_key
 
     def update_secret_key(self, secret_key: bytes) -> None:
-        self.box = nacl.secret.SecretBox(bytes(secret_key))
+        self.secret_key = secret_key
 
-    def _decrypt_rtp_xsalsa20_poly1305(self, packet: RTPPacket) -> bytes:
-        nonce = bytearray(24)
-        nonce[:12] = packet.header
-        result = self.box.decrypt(bytes(packet.data), bytes(nonce))
-
-        if packet.extended:
-            offset = packet.update_ext_headers(result)
-            result = result[offset:]
-
-        return result
-
-    def _decrypt_rtcp_xsalsa20_poly1305(self, data: bytes) -> bytes:
-        nonce = bytearray(24)
-        nonce[:8] = data[:8]
-        result = self.box.decrypt(data[8:], bytes(nonce))
-
-        return data[:8] + result
-
-    def _decrypt_rtp_xsalsa20_poly1305_suffix(self, packet: RTPPacket) -> bytes:
-        nonce = packet.data[-24:]
-        voice_data = packet.data[:-24]
-        result = self.box.decrypt(bytes(voice_data), bytes(nonce))
-
-        if packet.extended:
-            offset = packet.update_ext_headers(result)
-            result = result[offset:]
-
-        return result
-
-    def _decrypt_rtcp_xsalsa20_poly1305_suffix(self, data: bytes) -> bytes:
-        nonce = data[-24:]
-        header = data[:8]
-        result = self.box.decrypt(data[8:-24], nonce)
-
-        return header + result
-
-    def _decrypt_rtp_xsalsa20_poly1305_lite(self, packet: RTPPacket) -> bytes:
+    def _decrypt_rtp_aead_xchacha20_poly1305_rtpsize(self, packet: RTPPacket) -> bytes:
         nonce = bytearray(24)
         nonce[:4] = packet.data[-4:]
         voice_data = packet.data[:-4]
-        result = self.box.decrypt(bytes(voice_data), bytes(nonce))
+
+        result = libnacl.crypto_aead_xchacha20poly1305_ietf_decrypt(bytes(voice_data), bytes(packet.header), bytes(nonce), self.secret_key)
 
         if packet.extended:
+            # re-attach the extended header
+            result = bytes(packet.header[-4:] + result)
+
             offset = packet.update_ext_headers(result)
             result = result[offset:]
 
         return result
 
-    def _decrypt_rtcp_xsalsa20_poly1305_lite(self, data: bytes) -> bytes:
+    def _decrypt_rtcp_aead_xchacha20_poly1305_rtpsize(self, data: bytes) -> bytes:
         nonce = bytearray(24)
         nonce[:4] = data[-4:]
         header = data[:8]
-        result = self.box.decrypt(data[8:-4], bytes(nonce))
+        result = libnacl.crypto_aead_xchacha20poly1305_ietf_decrypt(bytes(data[8:-4]), bytes(header), bytes(nonce), self.secret_key)
 
-        return header + result
+        return bytes(header + result)
 
+    def _decrypt_rtp_aead_aes256_gcm_rtpsize(self, packet: RTPPacket) -> bytes:
+        nonce = bytearray(12)
+        nonce[:4] = packet.data[-4:]
+        voice_data = packet.data[:-4]
+
+        result = libnacl.crypto_aead_aes256gcm_decrypt(bytes(voice_data), bytes(packet.header), bytes(nonce), self.secret_key)
+
+        if packet.extended:
+            # re-attach the extended header
+            result = bytes(packet.header[-4:] + result)
+
+            offset = packet.update_ext_headers(result)
+            result = result[offset:]
+
+        return result
+
+    def _decrypt_rtcp_aead_aes256_gcm_rtpsize(self, data: bytes) -> bytes:
+        nonce = bytearray(12)
+        nonce[:4] = data[-4:]
+        header = data[:8]
+        result = libnacl.crypto_aead_aes256gcm_decrypt(bytes(data[8:-4]), bytes(header), bytes(nonce), self.secret_key)
+
+        return bytes(header + result)
 
 class SpeakingTimer(threading.Thread):
     def __init__(self, reader: AudioReader):
