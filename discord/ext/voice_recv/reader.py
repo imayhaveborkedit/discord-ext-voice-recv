@@ -14,9 +14,10 @@ from .sinks import AudioSink
 from .router import PacketRouter, SinkEventRouter
 
 try:
-    import libnacl
+    import nacl.secret
+    from nacl.exceptions import CryptoError
 except ImportError as e:
-    raise RuntimeError("libnacl is required") from e
+    raise RuntimeError("pynacl is required") from e
 
 if TYPE_CHECKING:
     from typing import Optional, Callable, Any, Dict, Literal
@@ -138,9 +139,9 @@ class AudioReader:
                 if not isinstance(packet, rtp.ReceiverReportPacket):
                     log.info("Received unexpected rtcp packet: type=%s, %s", packet.type, type(packet))
                     log.debug("Packet info:\n  packet=%s\n  data=%s", packet, packet_data)
-        except ValueError as e:
+        except CryptoError as e:
             log.error("CryptoError decoding packet data")
-            log.debug("Error details:\n  data=%s\n  secret_key=%s", packet_data, self.voice_client.secret_key)
+            log.debug("CryptoError details:\n  data=%s\n  secret_key=%s", packet_data, self.voice_client.secret_key)
             return
         except Exception as e:
             if self._is_ip_discovery_packet(packet_data):
@@ -187,17 +188,17 @@ class PacketDecryptor:
         except AttributeError as e:
             raise NotImplementedError(mode) from e
 
-        self.secret_key = secret_key
+        self.box: nacl.secret.Aead = nacl.secret.Aead(bytes(secret_key))
 
     def update_secret_key(self, secret_key: bytes) -> None:
-        self.secret_key = secret_key
+        self.box = nacl.secret.Aead(bytes(secret_key))
 
     def _decrypt_rtp_aead_xchacha20_poly1305_rtpsize(self, packet: RTPPacket) -> bytes:
         nonce = bytearray(24)
         nonce[:4] = packet.data[-4:]
         voice_data = packet.data[:-4]
 
-        result = libnacl.crypto_aead_xchacha20poly1305_ietf_decrypt(bytes(voice_data), bytes(packet.header), bytes(nonce), self.secret_key)
+        result = self.box.decrypt(bytes(voice_data), bytes(packet.header), bytes(nonce))
 
         if packet.extended:
             # re-attach the extended header
@@ -212,33 +213,10 @@ class PacketDecryptor:
         nonce = bytearray(24)
         nonce[:4] = data[-4:]
         header = data[:8]
-        result = libnacl.crypto_aead_xchacha20poly1305_ietf_decrypt(bytes(data[8:-4]), bytes(header), bytes(nonce), self.secret_key)
+        result = self.box.decrypt(bytes(data[8:-4]), bytes(header), bytes(nonce))
 
         return bytes(header + result)
 
-    def _decrypt_rtp_aead_aes256_gcm_rtpsize(self, packet: RTPPacket) -> bytes:
-        nonce = bytearray(12)
-        nonce[:4] = packet.data[-4:]
-        voice_data = packet.data[:-4]
-
-        result = libnacl.crypto_aead_aes256gcm_decrypt(bytes(voice_data), bytes(packet.header), bytes(nonce), self.secret_key)
-
-        if packet.extended:
-            # re-attach the extended header
-            result = bytes(packet.header[-4:] + result)
-
-            offset = packet.update_ext_headers(result)
-            result = result[offset:]
-
-        return result
-
-    def _decrypt_rtcp_aead_aes256_gcm_rtpsize(self, data: bytes) -> bytes:
-        nonce = bytearray(12)
-        nonce[:4] = data[-4:]
-        header = data[:8]
-        result = libnacl.crypto_aead_aes256gcm_decrypt(bytes(data[8:-4]), bytes(header), bytes(nonce), self.secret_key)
-
-        return bytes(header + result)
 
 class SpeakingTimer(threading.Thread):
     def __init__(self, reader: AudioReader):
