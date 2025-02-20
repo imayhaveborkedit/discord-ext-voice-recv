@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Optional, TypedDict
+from typing import TYPE_CHECKING, List, Literal, Optional, TypedDict
 
 from discord.types.snowflake import Snowflake
 
@@ -12,7 +12,8 @@ if TYPE_CHECKING:
 
     MemberOrUser = Union[discord.Member, discord.User]
 
-ResolutionTypes = Literal['fixed']
+ResolutionTypes = Literal['fixed', 'source']
+StreamTypes = Literal['audio', 'video', 'screen', 'test']  # only video appears to be used
 
 
 class VideoResolution(TypedDict):
@@ -22,7 +23,9 @@ class VideoResolution(TypedDict):
 
 
 class VideoStream(TypedDict):
+    type: StreamTypes
     active: bool
+    max_bitrate: int
     max_framerate: int
     max_resolution: VideoResolution
     quality: int
@@ -38,15 +41,19 @@ class VoiceVideoPayload(TypedDict):
     streams: list[VideoStream]
 
 
+class VoiceClientConnectPayload(TypedDict):
+    user_ids: List[Snowflake]
+
+
 class VoiceClientDisconnectPayload(TypedDict):
     user_id: Snowflake
 
 
 class VoiceFlagsPayload(TypedDict):
-    flags: int
+    flags: Optional[int]
     user_id: Snowflake
 
 
 class VoicePlatformPayload(TypedDict):
-    platform: Optional[Union[str, int]]  # unknown because ive never actually seen it
+    platform: Optional[Literal[0, 1, 2, 3]]
     user_id: Snowflake

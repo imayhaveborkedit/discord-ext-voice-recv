@@ -44,7 +44,9 @@ class VoiceVideoStreams:
 
 class VideoStreamInfo:
     __slots__ = (
+        'type',
         'active',
+        'max_bitrate',
         'max_framerate',
         'max_resolution',
         'quality',
@@ -54,7 +56,9 @@ class VideoStreamInfo:
     )
 
     def __init__(self, *, data: VideoStreamPayload):
+        self.type: str = data.get('type', 'video')
         self.active = data['active']
+        self.max_bitrate = data.get('max_bitrate', 0)
         self.max_framerate = data['max_framerate']
         self.max_resolution = VideoStreamResolution(data['max_resolution'])
         self.quality = data['quality']
@@ -67,6 +71,7 @@ class VideoStreamInfo:
             ('ssrc', self.ssrc),
             ('active', self.active),
             ('quality', self.quality),
+            ('max_bitrate', self.max_bitrate),
             ('max_framerate', self.max_framerate),
             ('max_resolution', self.max_resolution),
         ]

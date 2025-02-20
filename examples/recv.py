@@ -40,6 +40,7 @@ async def on_ready():
     print('Logged in as {0.id}/{0}'.format(bot.user))
     print('------')
 
+@bot.event
 async def setup_hook():
     await bot.add_cog(Testing(bot))
 
