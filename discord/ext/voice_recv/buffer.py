@@ -145,7 +145,7 @@ class HeapJitterBuffer:
             seq = self._get_seq(packet)
 
             # Detect large jump in data sequence caused by self._generation += 1
-            if seq + 32768 < self._last_tx:
+            if seq > self._last_tx + 32768:
                 self._last_tx = self._get_seq(packet) - 65536
             else:
                 self._last_tx = self._get_seq(packet)
