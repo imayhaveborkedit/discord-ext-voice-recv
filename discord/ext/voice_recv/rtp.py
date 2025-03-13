@@ -35,7 +35,7 @@ __all__ = [
     'ExtensionID',
 ]
 
-OPUS_SILENCE: Final = b'\xF8\xFF\xFE'
+OPUS_SILENCE: Final = b'\xf8\xff\xfe'
 
 
 class ExtensionID:
@@ -155,15 +155,18 @@ class RTPPacket(_PacketCmpMixin):
         'header',
         'data',
         'decrypted_data',
+        'nonce',
         'extension',
         'extension_data',
+        '_rtpsize',
     )
 
     _hstruct = struct.Struct('>xxHII')
     _ext_header = namedtuple("Extension", 'profile length values')
+    _ext_magic = b'\xbe\xde'
 
     def __init__(self, data: bytes):
-        data = bytearray(data)
+        data = bytearray(data)  # type: ignore
 
         # fmt: off
         self.version: int   =      data[0] >> 6
@@ -188,6 +191,9 @@ class RTPPacket(_PacketCmpMixin):
         self.data = data[12:]
         self.decrypted_data: Optional[bytes] = None
 
+        self.nonce: bytes = b''
+        self._rtpsize: bool = False
+
         if self.cc:
             fmt = '>%sI' % self.cc
             offset = struct.calcsize(fmt) + 12
@@ -196,22 +202,46 @@ class RTPPacket(_PacketCmpMixin):
 
         # TODO?: impl padding calculations (though discord doesn't seem to use that bit)
 
+    def adjust_rtpsize(self):
+        """Adjusts the packet header and data based on the rtpsize format."""
+
+        self._rtpsize = True
+        self.nonce = self.data[-4:]
+
+        if not self.extended:
+            self.data = self.data[:-4]
+            return
+
+        # rtpsize based formats are laid out similarly to SRTP packets, which includes the ext header now
+        # the nonce also needs to be removed from the end
+        self.header += self.data[:4]
+        self.data = self.data[4:-4]
+
     def update_ext_headers(self, data: bytes) -> int:
         """Adds extended header data to this packet, returns payload offset"""
 
         if not self.extended:
-            return -1
+            return 0
+
+        # rtpsize formats have the extension header in the rtp header instead of payload
+        if self._rtpsize:
+            data = self.header[-4:] + data
 
         # data is the decrypted packet payload containing the extension header and opus data
         profile, length = struct.unpack_from('>2sH', data)
 
-        if profile == b'\xBE\xDE':
+        if profile == self._ext_magic:
             self._parse_bede_header(data, length)
 
         values = struct.unpack('>%sI' % length, data[4 : 4 + length * 4])
         self.extension = self._ext_header(profile, length, values)
 
-        return 4 + length * 4
+        offset = 4 + length * 4
+        if self._rtpsize:
+            # remove the extra offset from adding the header in
+            offset -= 4
+
+        return offset
 
     # https://www.rfcreader.com/#rfc5285_line186
     def _parse_bede_header(self, data: bytes, length: int) -> None:
