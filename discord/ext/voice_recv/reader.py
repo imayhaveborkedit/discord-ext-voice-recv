@@ -101,6 +101,7 @@ class AudioReader:
             self.error = e
             log.exception('Error stopping event router')
 
+        self.speaking_timer.stop()
         self.keepalive.stop()
 
         if self.after:
