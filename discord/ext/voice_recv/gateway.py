@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 
-from discord.enums import SpeakingState
+from discord.enums import SpeakingState, try_enum
 
+from .enums import VoiceFlags, VoicePlatform
 from .video import VoiceVideoStreams
 
 from typing import TYPE_CHECKING, cast
@@ -32,14 +33,16 @@ HEARTBEAT_ACK             = 6
 RESUME                    = 7
 HELLO                     = 8
 RESUMED                   = 9
-CLIENT_CONNECT            = 12 # (aka VIDEO)
+CLIENT_CONNECT            = 11
+VIDEO                     = 12
 CLIENT_DISCONNECT         = 13
 SESSION_UPDATE            = 14 # (useless)
-VIDEO_SINK_WANTS          = 15 # (useless)
+MEDIA_SINK_WANTS          = 15 # (useless)
 VOICE_BACKEND_VERSION     = 16 # (useless)
-CHANNEL_OPTIONS_UPDATE    = 17 # (useless)
-FLAGS                     = 18 # (???)
-PLATFORM                  = 20 # (unpopulated)
+CHANNEL_OPTIONS_UPDATE    = 17 # (dead)
+FLAGS                     = 18
+SPEED_TEST                = 19 # (dead)
+PLATFORM                  = 20
 # fmt: on
 
 
@@ -74,18 +77,25 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
         ssrc = data['ssrc']
         vc._add_ssrc(uid, ssrc)
         member = vc.guild.get_member(uid)
-        state = SpeakingState.try_value(data['speaking'])  # type: ignore
+        state = try_enum(SpeakingState, data['speaking'])
         vc.dispatch("voice_member_speaking_state", member, ssrc, state)
 
-    # aka VIDEO
-    elif op == self.CLIENT_CONNECT:
+    elif op == CLIENT_CONNECT:
+        uids = [int(uid) for uid in data['user_ids']]
+
+        # Multiple user IDs means this is the initial member list
+        for uid in uids:
+            member = vc.guild.get_member(uid)
+            vc.dispatch("voice_member_connect", member)
+
+    elif op == VIDEO:
         uid = int(data['user_id'])
         vc._add_ssrc(uid, data['audio_ssrc'])
         member = vc.guild.get_member(uid)
         streams = VoiceVideoStreams(data=cast('VoiceVideoPayload', data), vc=vc)
         vc.dispatch("voice_member_video", member, streams)
 
-    elif op == self.CLIENT_DISCONNECT:
+    elif op == CLIENT_DISCONNECT:
         uid = int(data['user_id'])
         ssrc = vc._get_ssrc_from_id(uid)
 
@@ -100,9 +110,9 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
     elif op == FLAGS:
         uid = int(data['user_id'])
         member = vc.guild.get_member(uid)
-        vc.dispatch("voice_member_flags", member, data['flags'])
+        vc.dispatch("voice_member_flags", member, VoiceFlags._from_value(data['flags'] or 0))
 
     elif op == PLATFORM:
         uid = int(data['user_id'])
         member = vc.guild.get_member(uid)
-        vc.dispatch("voice_member_platform", member, data['platform'])
+        vc.dispatch("voice_member_platform", member, try_enum(VoicePlatform, data['platform']) if data['platform'] is not None else None)

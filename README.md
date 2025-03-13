@@ -146,6 +146,12 @@ This event is fired when the speaking state (speaking mode) of a member changes.
 This event is fired once initially to reveal the ssrc of a member, an identifier to map packets to their originating member.  Any packets received from this member before this event fires can (probably) be safely ignored since they are likely just silence packets.
 
 ```python
+async def on_voice_member_connect(member: discord.Member)
+```
+
+Called when a member connects to a voice channel. Also called on initial connection for every member in the channel.
+
+```python
 async def on_voice_member_disconnect(member: discord.Member, ssrc: int | None)
 ```
 Called when a member disconnects from a voice channel. The `ssrc` parameter is the unique id a member has to identify which packets belong to them.  This is useful when using custom sinks, particularly those that handle packets from multiple members.
@@ -156,20 +162,25 @@ async def on_voice_member_video(member: discord.Member, data: voice_recv.VoiceVi
 Called when a member in voice channel toggles their webcam on or off, NOT screenshare.  Screenshare status is only indicated in the `self_video` attribute of `discord.VoiceState`.
 
 ```python
-async def on_voice_member_flags(member: discord.Member, flags: int | None)
+async def on_voice_member_flags(member: discord.Member, flags: voice_recv.VoiceFlags)
 ```
-An undocumented event dispatched when a member joins a voice channel containing a flags bitfield.  Only values `0`, `2`, and `None` have been observed so far, but their meaning remains unknown.
+An undocumented event dispatched when a member joins a voice channel containing a flags bitfield. Also called on initial connection for every member in the channel.
+
+Flags:
+- `VoiceFlags.clips_enabled`: User has [clips](https://support.discord.com/hc/en-us/articles/16861982215703-Clips) enabled
+- `VoiceFlags.allow_voice_recording`: User has consented to their voice being clipped
+- `VoiceFlags.allow_any_viewer_clips`: User has consented to stream viewers clipping them
 
 ```python
-async def on_voice_member_platform(member: discord.Member, platform: int | str | None)
+async def on_voice_member_platform(member: discord.Member, platform: voice_recv.VoicePlatform | None)
 ```
-An undocumented event dispatched when a member joins a voice channel containing a platform key, presumably with what platform the member joined on.  Observed values:
+An undocumented event dispatched when a member joins a voice channel containing the member's platform. Also called on initial connection for every member in the channel.
 
-- `None` No data/unknown
-- `0` Desktop client/browser
-- `1` Mobile (android?)
-
-The exact meaning of these values is only speculation and assumption.
+Values:
+- `VoicePlatform.desktop`
+- `VoicePlatform.mobile`
+- `VoicePlatform.xbox`
+- `VoicePlatform.playstation`
 
 ```python
 def on_rtcp_packet(packet: RTCPPacket, guild: discord.Guild)
