@@ -57,6 +57,7 @@ class AudioReader:
         self.event_router: SinkEventRouter = SinkEventRouter(sink, self)
         self.decryptor: PacketDecryptor = PacketDecryptor(voice_client.mode, bytes(voice_client.secret_key))
         self.speaking_timer: SpeakingTimer = SpeakingTimer(self)
+        self.keepalive: UDPKeepAlive = UDPKeepAlive(voice_client)
 
     def is_listening(self) -> bool:
         return self.active
@@ -73,6 +74,7 @@ class AudioReader:
         self.event_router.start()
         self.packet_router.start()
         self.voice_client._connection.add_socket_listener(self.callback)
+        self.keepalive.start()
         self.active = True
 
     def stop(self) -> None:
@@ -98,6 +100,8 @@ class AudioReader:
         except Exception as e:
             self.error = e
             log.exception('Error stopping event router')
+
+        self.keepalive.stop()
 
         if self.after:
             try:
@@ -332,3 +336,44 @@ class SpeakingTimer(threading.Thread):
 
             self.dispatch('voice_member_speaking_stop', ssrc)
             self.last_speaking_state[ssrc] = False
+
+
+# TODO: unify into a single thread that does all keepalives
+class UDPKeepAlive(threading.Thread):
+    delay: int = 5000
+
+    def __init__(self, voice_client: VoiceRecvClient):
+        super().__init__(daemon=True, name=f"voice-udp-keepalive-{id(self):x}")
+
+        self.voice_client: VoiceRecvClient = voice_client
+
+        self.last_time: float = 0
+        self.counter: int = 0
+        self._end_thread: threading.Event = threading.Event()
+
+    def run(self) -> None:
+        self.voice_client.wait_until_connected()
+
+        while not self._end_thread.is_set():
+            vc = self.voice_client
+            try:
+                packet = self.counter.to_bytes(8, 'big')
+            except OverflowError:
+                self.counter = 0
+                continue
+
+            try:
+                vc._connection.socket.sendto(packet, (vc._connection.endpoint_ip, vc._connection.voice_port))
+            except Exception as e:
+                log.debug("Error sending keepalive to socket: %s: %s", e.__class__.__name__, e)
+                # TODO: test connection interruptions
+                vc.wait_until_connected()
+                if vc.is_connected():
+                    continue
+                break
+            else:
+                self.counter += 1
+                time.sleep(self.delay)
+
+    def stop(self) -> None:
+        self._end_thread.set()
