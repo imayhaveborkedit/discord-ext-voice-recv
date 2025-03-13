@@ -33,10 +33,10 @@ class HeapJitterBuffer:
 
         self._last_rx: int = 0
         self._last_tx: int = 0
-        self._generation: int = 0
-        self._generation_ts: int = 0
 
         self._has_item: threading.Event = threading.Event()
+        self._lock: threading.RLock = threading.RLock()
+        
         # I sure hope I dont need to add a lock to this
         self._buffer: List[tuple[int, RTPPacket]] = []
 
@@ -67,7 +67,7 @@ class HeapJitterBuffer:
             return
 
         sequential = self._last_tx + 1 == self._buffer[0][0]
-        positive_seq = self._last_tx > 0 or self._generation > 0
+        positive_seq = self._last_tx > 0
 
         # We have the next packet ready
         # OR we havent sent a packet out yet
@@ -80,12 +80,12 @@ class HeapJitterBuffer:
     def _cleanup(self) -> None:
         while len(self._buffer) > self.maxsize:
             heapq.heappop(self._buffer)
-
         while self._buffer and self._buffer[0][0] <= self._last_tx:
+            print(f"ERROR: clearing buffer {self._buffer[0][0]} | {self._last_tx}")
             heapq.heappop(self._buffer)
 
     def _get_seq(self, packet: RTPPacket) -> int:
-        return packet.sequence + 65536 * self._generation
+        return packet.sequence
 
     def push(self, packet: RTPPacket) -> bool:
         """
@@ -93,13 +93,11 @@ class HeapJitterBuffer:
         exceed its maxsize, the oldest packet will be dropped.
         """
 
-        seq = self._get_seq(packet)
-
-        # if the seq has rolled over, it'll be ~65535 lower than the generation ts
-        if seq + 32768 < self._last_rx and packet.timestamp > self._generation_ts:
-            self._generation += 1
-            self._generation_ts = packet.timestamp
-            seq = self._get_seq(packet)
+        seq = packet.sequence
+        # if the seq has rolled over, it'll be significantly lower than last rx seq
+        if seq + 32768 < self._last_rx:
+            with self._lock: # For thread safety, can be moved elsewhere if necessary
+                self.reset()
 
         # Ignore the packet if its too old
         if seq <= self._last_rx and self._last_rx > 0:
@@ -142,7 +140,8 @@ class HeapJitterBuffer:
         packet = self._pop_if_ready()
 
         if packet is not None:
-            self._last_tx = self._get_seq(packet)
+            with self._lock: # For thread safety since last tx is also set in reset
+                self._last_tx = packet.sequence
 
         self._update_has_item()
         return packet
@@ -193,7 +192,6 @@ class HeapJitterBuffer:
         if packets:
             self._last_tx = packets[-1].sequence
 
-        self._generation = self._generation_ts = 0
         self._prefill = self.prefill
         self._has_item.clear()
 
@@ -207,4 +205,4 @@ class HeapJitterBuffer:
         self._buffer.clear()
         self._has_item.clear()
         self._prefill = self.prefill
-        self._last_tx = self._last_rx = self._generation = self._generation_ts = 0
+        self._last_tx = self._last_rx = 0
