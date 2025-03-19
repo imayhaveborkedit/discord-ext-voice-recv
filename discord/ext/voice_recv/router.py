@@ -93,7 +93,7 @@ class PacketRouter(threading.Thread):
                 self.destroy_decoder(ssrc)
 
     def stop(self) -> None:
-        self._end_thread.clear()
+        self._end_thread.set()
 
     def run(self) -> None:
         try:

@@ -42,7 +42,7 @@ setup(
     long_description_content_type='text/markdown',
     include_package_data=True,
     python_requires='>=3.8',
-    install_requires=['discord.py[voice]>2.3'],
+    install_requires=['discord.py[voice]>=2.5'],
     extras_require=extras_require,
     zip_safe=False,
     classifiers=[

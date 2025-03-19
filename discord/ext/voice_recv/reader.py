@@ -20,7 +20,7 @@ except ImportError as e:
     raise RuntimeError("pynacl is required") from e
 
 if TYPE_CHECKING:
-    from typing import Optional, Callable, Any, Dict, Literal
+    from typing import Optional, Callable, Any, Dict, Literal, Union
 
     from discord import Member
     from discord.types.voice import SupportedModes
@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     DecryptRTCP = Callable[[bytes], bytes]
     AfterCB = Callable[[Optional[Exception]], Any]
     SpeakingEvent = Literal['voice_member_speaking_start', 'voice_member_speaking_stop']
+    EncryptionBox = Union[nacl.secret.SecretBox, nacl.secret.Aead]
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class AudioReader:
         self.event_router: SinkEventRouter = SinkEventRouter(sink, self)
         self.decryptor: PacketDecryptor = PacketDecryptor(voice_client.mode, bytes(voice_client.secret_key))
         self.speaking_timer: SpeakingTimer = SpeakingTimer(self)
+        self.keepalive: UDPKeepAlive = UDPKeepAlive(voice_client)
 
     def is_listening(self) -> bool:
         return self.active
@@ -73,6 +75,7 @@ class AudioReader:
         self.event_router.start()
         self.packet_router.start()
         self.voice_client._connection.add_socket_listener(self.callback)
+        self.keepalive.start()
         self.active = True
 
     def stop(self) -> None:
@@ -98,6 +101,9 @@ class AudioReader:
         except Exception as e:
             self.error = e
             log.exception('Error stopping event router')
+
+        self.speaking_timer.stop()
+        self.keepalive.stop()
 
         if self.after:
             try:
@@ -181,17 +187,31 @@ class AudioReader:
 
 
 class PacketDecryptor:
+    supported_modes: list[SupportedModes] = [
+        'aead_xchacha20_poly1305_rtpsize',
+        'xsalsa20_poly1305_lite',
+        'xsalsa20_poly1305_suffix',
+        'xsalsa20_poly1305',
+    ]
+
     def __init__(self, mode: SupportedModes, secret_key: bytes) -> None:
+        self.mode: SupportedModes = mode
         try:
             self.decrypt_rtp: DecryptRTP = getattr(self, '_decrypt_rtp_' + mode)
             self.decrypt_rtcp: DecryptRTCP = getattr(self, '_decrypt_rtcp_' + mode)
         except AttributeError as e:
             raise NotImplementedError(mode) from e
 
-        self.box: nacl.secret.SecretBox = nacl.secret.SecretBox(bytes(secret_key))
+        self.box: EncryptionBox = self._make_box(secret_key)
+
+    def _make_box(self, secret_key: bytes) -> EncryptionBox:
+        if self.mode.startswith("aead"):
+            return nacl.secret.Aead(secret_key)
+        else:
+            return nacl.secret.SecretBox(secret_key)
 
     def update_secret_key(self, secret_key: bytes) -> None:
-        self.box = nacl.secret.SecretBox(bytes(secret_key))
+        self.box = self._make_box(secret_key)
 
     def _decrypt_rtp_xsalsa20_poly1305(self, packet: RTPPacket) -> bytes:
         nonce = bytearray(24)
@@ -246,6 +266,33 @@ class PacketDecryptor:
         nonce[:4] = data[-4:]
         header = data[:8]
         result = self.box.decrypt(data[8:-4], bytes(nonce))
+
+        return header + result
+
+    def _decrypt_rtp_aead_xchacha20_poly1305_rtpsize(self, packet: RTPPacket) -> bytes:
+        packet.adjust_rtpsize()
+
+        nonce = bytearray(24)
+        nonce[:4] = packet.nonce
+        voice_data = packet.data
+
+        # Blob vomit
+        assert isinstance(self.box, nacl.secret.Aead)
+        result = self.box.decrypt(bytes(voice_data), bytes(packet.header), bytes(nonce))
+
+        if packet.extended:
+            offset = packet.update_ext_headers(result)
+            result = result[offset:]
+
+        return result
+
+    def _decrypt_rtcp_aead_xchacha20_poly1305_rtpsize(self, data: bytes) -> bytes:
+        nonce = bytearray(24)
+        nonce[:4] = data[-4:]
+        header = data[:8]
+
+        assert isinstance(self.box, nacl.secret.Aead)
+        result = self.box.decrypt(data[8:-4], bytes(header), bytes(nonce))
 
         return header + result
 
@@ -332,3 +379,44 @@ class SpeakingTimer(threading.Thread):
 
             self.dispatch('voice_member_speaking_stop', ssrc)
             self.last_speaking_state[ssrc] = False
+
+
+# TODO: unify into a single thread that does all keepalives
+class UDPKeepAlive(threading.Thread):
+    delay: int = 5000
+
+    def __init__(self, voice_client: VoiceRecvClient):
+        super().__init__(daemon=True, name=f"voice-udp-keepalive-{id(self):x}")
+
+        self.voice_client: VoiceRecvClient = voice_client
+
+        self.last_time: float = 0
+        self.counter: int = 0
+        self._end_thread: threading.Event = threading.Event()
+
+    def run(self) -> None:
+        self.voice_client.wait_until_connected()
+
+        while not self._end_thread.is_set():
+            vc = self.voice_client
+            try:
+                packet = self.counter.to_bytes(8, 'big')
+            except OverflowError:
+                self.counter = 0
+                continue
+
+            try:
+                vc._connection.socket.sendto(packet, (vc._connection.endpoint_ip, vc._connection.voice_port))
+            except Exception as e:
+                log.debug("Error sending keepalive to socket: %s: %s", e.__class__.__name__, e)
+                # TODO: test connection interruptions
+                vc.wait_until_connected()
+                if vc.is_connected():
+                    continue
+                break
+            else:
+                self.counter += 1
+                time.sleep(self.delay)
+
+    def stop(self) -> None:
+        self._end_thread.set()
