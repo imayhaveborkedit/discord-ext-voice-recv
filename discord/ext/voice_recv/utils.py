@@ -14,6 +14,20 @@ if TYPE_CHECKING:
     TimeFunc = Callable[[], float]
 
 
+def gap_wrapped(a: int, b: int, *, wrap: int = 65536) -> int:
+    """
+    Returns the gap between two numbers, acounting for unsigned integer wraparound.
+    """
+    return (b - (a + 1) + wrap) % wrap
+
+
+def add_wrapped(a: int, b: int, *, wrap: int = 65536) -> int:
+    """
+    Returns the sum of two numbers, accounting for unsigned integer wraparound.
+    """
+    return (a + b) % wrap
+
+
 # May not even be needed if i dont use the dict subclasses
 class Bidict(dict):
     """A bi-directional dict"""

@@ -120,7 +120,9 @@ class PacketRouter(threading.Thread):
 
             with self._lock:
                 for decoder in self.decoders.values():
-                    data = decoder.pop_data()
+                    # TODO: i dont like how this smells, rework with better synchronization primitives
+                    data = decoder.pop_data(timeout=0.001)
+
                     if data is not None:
                         self.sink.write(data.source, data)
 

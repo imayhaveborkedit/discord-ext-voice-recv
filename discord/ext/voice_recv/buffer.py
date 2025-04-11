@@ -3,21 +3,81 @@
 from __future__ import annotations
 
 import heapq
+import logging
 import threading
 
-from typing import TYPE_CHECKING, overload
+from .utils import gap_wrapped, add_wrapped
+
+
+from typing import (
+    TYPE_CHECKING,
+    overload,
+    Protocol,
+    TypeVar,
+)
+
+from .rtp import _PacketCmpMixin
 
 if TYPE_CHECKING:
     from typing import Literal, Optional, List
-    from .rtp import RTPPacket
+    from .rtp import AudioPacket
 
 __all__ = [
     'HeapJitterBuffer',
 ]
 
 
-class HeapJitterBuffer:
+_T = TypeVar('_T')
+PacketT = TypeVar('PacketT', bound=_PacketCmpMixin)
+
+
+log = logging.getLogger(__name__)
+
+
+class Buffer(Protocol[_T]):
+    """The base class representing a simple buffer with no extra features."""
+
+    # fmt: off
+    def __len__(self) -> int: ...
+    def push(self, item: _T) -> None: ...
+    def pop(self) -> Optional[_T]: ...
+    def peek(self) -> Optional[_T]: ...
+    def flush(self) -> List[_T]: ...
+    def reset(self) -> None: ...
+    # fmt: on
+
+
+class BaseBuffer(Buffer[PacketT]):
+    """A basic buffer."""
+
+    def __init__(self):
+        self._buffer: List[PacketT] = []
+
+    def __len__(self) -> int:
+        return len(self._buffer)
+
+    def push(self, item: PacketT) -> None:
+        self._buffer.append(item)
+
+    def pop(self) -> Optional[PacketT]:
+        return self._buffer.pop()
+
+    def peek(self) -> Optional[PacketT]:
+        return self._buffer[-1] if self._buffer else None
+
+    def flush(self) -> List[PacketT]:
+        buf = self._buffer.copy()
+        self._buffer.clear()
+        return buf
+
+    def reset(self) -> None:
+        self._buffer.clear()
+
+
+class HeapJitterBuffer(BaseBuffer[PacketT]):
     """Push item in, pop items out"""
+
+    _threshold: int = 10000
 
     def __init__(self, maxsize: int = 10, *, prefsize: int = 1, prefill: int = 1):
         if maxsize < 1:
@@ -31,31 +91,22 @@ class HeapJitterBuffer:
         self.prefill: int = prefill
         self._prefill: int = prefill
 
-        self._last_rx: int = 0
-        self._last_tx: int = 0
-        self._generation: int = 0
-        self._generation_ts: int = 0
+        self._last_tx_seq: int = -1
 
         self._has_item: threading.Event = threading.Event()
         # I sure hope I dont need to add a lock to this
-        self._buffer: List[tuple[int, RTPPacket]] = []
+        self._buffer: List[AudioPacket] = []
 
-    def __bool__(self) -> bool:
-        return len(self._buffer) > 0
+    def _push(self, packet: AudioPacket) -> None:
+        heapq.heappush(self._buffer, packet)
 
-    def __len__(self) -> int:
-        return len(self._buffer)
+    def _pop(self) -> AudioPacket:
+        return heapq.heappop(self._buffer)
 
-    def _push(self, packet: RTPPacket, seq: int) -> None:
-        heapq.heappush(self._buffer, (seq, packet))
+    def _get_packet_if_ready(self) -> Optional[AudioPacket]:
+        return self._buffer[0] if len(self._buffer) > self.prefsize else None
 
-    def _pop(self) -> RTPPacket:
-        return heapq.heappop(self._buffer)[1]
-
-    def _get_packet_if_ready(self) -> Optional[RTPPacket]:
-        return self._buffer[0][1] if len(self._buffer) > self.prefsize else None
-
-    def _pop_if_ready(self) -> Optional[RTPPacket]:
+    def _pop_if_ready(self) -> Optional[AudioPacket]:
         return self._pop() if len(self._buffer) > self.prefsize else None
 
     def _update_has_item(self) -> None:
@@ -66,8 +117,9 @@ class HeapJitterBuffer:
             self._has_item.clear()
             return
 
-        sequential = self._last_tx + 1 == self._buffer[0][0]
-        positive_seq = self._last_tx > 0 or self._generation > 0
+        next_packet = self._buffer[0]
+        sequential = add_wrapped(self._last_tx_seq, 1) == next_packet.sequence
+        positive_seq = self._last_tx_seq >= 0
 
         # We have the next packet ready
         # OR we havent sent a packet out yet
@@ -78,39 +130,33 @@ class HeapJitterBuffer:
             self._has_item.clear()
 
     def _cleanup(self) -> None:
+        # Logging this is pointless until I fix the stale remote buffer issue
+        # if len(self._buffer) > self.maxsize:
+            # log.debug("Buffer overfilled: %s > %s", len(self._buffer), self.maxsize)
+
+        # drop oldest packets if buffer overfilled
         while len(self._buffer) > self.maxsize:
-            heapq.heappop(self._buffer)
+            packet = heapq.heappop(self._buffer)
+            # log.debug("Dropped extra packet %s", packet)
 
-        while self._buffer and self._buffer[0][0] <= self._last_tx:
-            heapq.heappop(self._buffer)
-
-    def _get_seq(self, packet: RTPPacket) -> int:
-        return packet.sequence + 65536 * self._generation
-
-    def push(self, packet: RTPPacket) -> bool:
+    def push(self, packet: AudioPacket) -> bool:
         """
         Push a packet into the buffer.  If the packet would make the buffer
         exceed its maxsize, the oldest packet will be dropped.
         """
 
-        seq = self._get_seq(packet)
+        seq = packet.sequence
 
-        # if the seq has rolled over, it'll be ~65535 lower than the generation ts
-        if seq + 32768 < self._last_rx and packet.timestamp > self._generation_ts:
-            self._generation += 1
-            self._generation_ts = packet.timestamp
-            seq = self._get_seq(packet)
-
-        # Ignore the packet if its too old
-        if seq <= self._last_rx and self._last_rx > 0:
+        # for the gap between _last_tx_seq and the current one, a large gap is old, a small gap is new
+        # the gap for old packets will generally be very large since they wrap all the way around
+        if gap_wrapped(self._last_tx_seq, seq) > self._threshold and self._last_tx_seq != -1:
+            log.debug("Dropping old packet %s", packet)
             return False
 
-        self._push(packet, seq)
+        self._push(packet)
 
         if self._prefill > 0:
             self._prefill -= 1
-
-        self._last_rx = seq
 
         self._cleanup()
         self._update_has_item()
@@ -118,12 +164,10 @@ class HeapJitterBuffer:
         return True
 
     @overload
-    def pop(self, *, timeout: float = 1.0) -> Optional[RTPPacket]:
-        ...
+    def pop(self, *, timeout: float = 1.0) -> Optional[AudioPacket]: ...
 
     @overload
-    def pop(self, *, timeout: Literal[0]) -> Optional[RTPPacket]:
-        ...
+    def pop(self, *, timeout: Literal[0]) -> Optional[AudioPacket]: ...
 
     def pop(self, *, timeout=1.0):
         """
@@ -142,12 +186,12 @@ class HeapJitterBuffer:
         packet = self._pop_if_ready()
 
         if packet is not None:
-            self._last_tx = self._get_seq(packet)
+            self._last_tx_seq = packet.sequence
 
         self._update_has_item()
         return packet
 
-    def peek(self, *, all: bool = False) -> Optional[RTPPacket]:
+    def peek(self, *, all: bool = False) -> Optional[AudioPacket]:
         """
         Returns the next packet in the buffer only if it is ready, meaning it can
         be popped. When `all` is set to True, it returns the next packet, if any.
@@ -157,18 +201,21 @@ class HeapJitterBuffer:
             return None
 
         if all:
-            return self._buffer[0][1]
+            return self._buffer[0]
         else:
             return self._get_packet_if_ready()
 
-    def peek_next(self) -> Optional[RTPPacket]:
+    def peek_next(self) -> Optional[AudioPacket]:
         """
         Returns the next packet in the buffer only if it is sequential.
         """
 
         packet = self.peek(all=True)
 
-        if packet and self._get_seq(packet) == self._last_tx + 1:
+        if packet is None:
+            return
+
+        if packet.sequence == add_wrapped(self._last_tx_seq, 1) or self._last_tx_seq < 0:
             return packet
 
     def gap(self) -> int:
@@ -177,23 +224,22 @@ class HeapJitterBuffer:
         popped and the currently held next packet.  Returns 0 otherwise.
         """
 
-        if self._buffer and self._last_tx > 0:
-            return self._buffer[0][0] - self._last_tx + 1
+        if self._buffer and self._last_tx_seq > 0:
+            return gap_wrapped(self._last_tx_seq, self._buffer[0].sequence)
 
         return 0
 
-    def flush(self) -> List[RTPPacket]:
+    def flush(self) -> List[AudioPacket]:
         """
         Return all remaining packets.
         """
 
-        packets = [p for (_, p) in sorted(self._buffer)]
+        packets = sorted(self._buffer)
         self._buffer.clear()
 
         if packets:
-            self._last_tx = packets[-1].sequence
+            self._last_tx_seq = packets[-1].sequence
 
-        self._generation = self._generation_ts = 0
         self._prefill = self.prefill
         self._has_item.clear()
 
@@ -207,4 +253,4 @@ class HeapJitterBuffer:
         self._buffer.clear()
         self._has_item.clear()
         self._prefill = self.prefill
-        self._last_tx = self._last_rx = self._generation = self._generation_ts = 0
+        self._last_tx_seq = -1

@@ -84,22 +84,22 @@ def _into_low(x: float, bitlen: int = 32) -> int:
 
 
 class _PacketCmpMixin:
-    __slots__ = ('ssrc', 'timestamp')
+    __slots__ = ('ssrc', 'sequence', 'timestamp')
 
     def __lt__(self, other: _PacketCmpMixin) -> bool:
         if self.ssrc != other.ssrc:
             raise TypeError("packet ssrc mismatch (%s, %s)" % (self.ssrc, other.ssrc))
-        return self.timestamp < other.timestamp
+        return self.sequence < other.sequence and self.timestamp < other.timestamp
 
     def __gt__(self, other: _PacketCmpMixin) -> bool:
         if self.ssrc != other.ssrc:
             raise TypeError("packet ssrc mismatch (%s, %s)" % (self.ssrc, other.ssrc))
-        return self.timestamp > other.timestamp
+        return self.sequence > other.sequence or self.timestamp > other.timestamp
 
     def __eq__(self, other: _PacketCmpMixin) -> bool:
         if self.ssrc != other.ssrc:
             return False
-        return self.timestamp == other.timestamp
+        return self.sequence == other.sequence and self.timestamp == other.timestamp
 
     def is_silence(self) -> bool:
         data = getattr(self, 'decrypted_data', None)
