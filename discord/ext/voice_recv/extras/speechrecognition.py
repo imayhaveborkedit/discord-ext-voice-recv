@@ -150,7 +150,8 @@ else:
 
         @AudioSink.listener()
         def on_voice_member_disconnect(self, member: Member, ssrc: Optional[int]) -> None:
-            self._drop(member.id)
+            if member is not None:
+                self._drop(member.id)
 
         def cleanup(self) -> None:
             for user_id in tuple(self._stream_data.keys()):
