@@ -31,6 +31,9 @@ log = logging.getLogger(__name__)
 
 
 class VoiceRecvClient(discord.VoiceClient):
+    endpoint_ip: str
+    voice_port: int
+
     def __init__(self, client: discord.Client, channel: discord.abc.Connectable):
         super().__init__(client, channel)
 
