@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from queue import Queue
 
 from typing import TYPE_CHECKING, Final
 
@@ -46,11 +47,11 @@ class VoiceData:
     def opus(self) -> Optional[bytes]:
         return self.packet.decrypted_data
 
-
 class PacketDecoder:
-    def __init__(self, router: PacketRouter, ssrc: int):
+    def __init__(self, router: PacketRouter, ssrc: int, data_queue: Queue):
         self.router: PacketRouter = router
         self.ssrc: int = ssrc
+        self._data_queue: Queue = data_queue
 
         self._decoder: Optional[Decoder] = None if self.sink.wants_opus() else Decoder()
         self._buffer: JitterBuffer = JitterBuffer()
@@ -72,6 +73,10 @@ class PacketDecoder:
 
     def push_packet(self, packet: AudioPacket) -> None:
         self._buffer.push(packet)
+
+        processed = self.pop_data(timeout=0.0)  # non-blocking
+        if processed:
+            self._data_queue.put(processed)
 
     def pop_data(self, *, timeout: float = BUFFER_TIMEOUT) -> Optional[VoiceData]:
         packet = self._get_next_packet(timeout)
@@ -140,7 +145,7 @@ class PacketDecoder:
     def _decode_packet(self, packet: AudioPacket) -> Tuple[AudioPacket, bytes]:
         assert self._decoder is not None
 
-        # Decode as per usual
+        # Decode
         if packet:
             pcm = self._decoder.decode(packet.decrypted_data, fec=False)
             return packet, pcm

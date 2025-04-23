@@ -29,7 +29,6 @@ log = logging.getLogger(__name__)
 class PacketRouter(threading.Thread):
     def __init__(self, sink: AudioSink, reader: AudioReader):
         super().__init__(daemon=True, name=f"packet-router-{id(self):x}")
-
         self.sink: AudioSink = sink
         self.decoders: Dict[int, PacketDecoder] = {}
         self.reader: AudioReader = reader
@@ -38,6 +37,8 @@ class PacketRouter(threading.Thread):
         self._has_decoder: threading.Condition = threading.Condition()
         self._end_thread: threading.Event = threading.Event()
         self._dropped_ssrcs: deque[int] = deque(maxlen=16)
+
+        self._data_queue: queue.Queue = queue.Queue()
 
     def feed_rtp(self, packet: RTPPacket) -> None:
         # TODO: stale packet check
@@ -60,10 +61,10 @@ class PacketRouter(threading.Thread):
         with self._lock:
             decoder = self.decoders.get(ssrc)
             if decoder is None:
-                decoder = self.decoders.setdefault(ssrc, PacketDecoder(self, ssrc))
+                decoder = PacketDecoder(self, ssrc, self._data_queue)
+                self.decoders[ssrc] = decoder
                 with self._has_decoder:
                     self._has_decoder.notify_all()
-
             return decoder
 
     def set_sink(self, sink: AudioSink) -> None:
@@ -105,31 +106,12 @@ class PacketRouter(threading.Thread):
             self.reader.voice_client.stop_listening()
 
     def _do_run(self) -> None:
-        timer = LoopTimer(0.01)
-        timer.start()
-
         while not self._end_thread.is_set():
-            if not self.decoders:
-                with self._has_decoder:
-                    has_decoder = self._has_decoder.wait_for(lambda: self.decoders)
-                    if not has_decoder:
-                        continue
-
-                    # we have a decoder so reset the timer
-                    timer.start()
-
-            with self._lock:
-                for decoder in self.decoders.values():
-                    # TODO: i dont like how this smells, rework with better synchronization primitives
-                    data = decoder.pop_data(timeout=0.001)
-
-                    if data is not None:
-                        self.sink.write(data.source, data)
-
-            # we can end up in a busy loop if no decoders actually have any data
-            # so we do a sleep that sleeps up to 0.01 seconds per iteration, excluding time passed
-            timer.mark()
-            timer.sleep()
+            try:
+                data = self._data_queue.get(timeout=0.05)
+                self.sink.write(data.source, data)
+            except queue.Empty:
+                continue
 
 
 class SinkEventRouter(threading.Thread):
