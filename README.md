@@ -1,3 +1,5 @@
+![PyPI - Version](https://img.shields.io/pypi/v/discord-ext-voice-recv?color=dodgerblue&link=https%3A%2F%2Fpypi.org%2Fproject%2Fdiscord-ext-voice-recv%2F)
+
 # discord-ext-voice-recv
 Voice receive extension package for discord.py
 
