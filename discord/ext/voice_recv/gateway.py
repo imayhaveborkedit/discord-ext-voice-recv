@@ -115,4 +115,8 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
     elif op == PLATFORM:
         uid = int(data['user_id'])
         member = vc.guild.get_member(uid)
-        vc.dispatch("voice_member_platform", member, try_enum(VoicePlatform, data['platform']) if data['platform'] is not None else None)
+        vc.dispatch(
+            "voice_member_platform",
+            member,
+            try_enum(VoicePlatform, data['platform']) if data['platform'] is not None else None,
+        )
