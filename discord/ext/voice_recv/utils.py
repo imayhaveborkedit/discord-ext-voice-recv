@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import time
+import threading
 
 from collections import defaultdict
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 if TYPE_CHECKING:
-    from typing import Callable
+    from typing import Callable, Sequence
 
     TimeFunc = Callable[[], float]
+
+_dataT = TypeVar("_dataT")
 
 
 def gap_wrapped(a: int, b: int, *, wrap: int = 65536) -> int:
@@ -152,3 +155,51 @@ class LoopTimer:
 
     def sleep(self) -> None:
         time.sleep(max(0, self.remaining_time))
+
+
+class MultiDataEvent(Generic[_dataT]):
+    """
+    Something like the inverse of a Condition.  A 1-waiting-on-N type of object,
+    with accompanying data object for convenience.
+    """
+
+    def __init__(self):
+        self._items: list[_dataT] = []
+        self._ready: threading.Event = threading.Event()
+
+    @property
+    def items(self) -> list[_dataT]:
+        """A shallow copy of the currently ready objects."""
+        return self._items.copy()
+
+    def is_ready(self) -> bool:
+        return self._ready.is_set()
+
+    def _check_ready(self) -> None:
+        if self._items:
+            self._ready.set()
+        else:
+            self._ready.clear()
+
+    def notify(self) -> None:
+        self._ready.set()
+        self._check_ready()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self._check_ready()
+        return self._ready.wait(timeout)
+
+    def register(self, item: _dataT) -> None:
+        self._items.append(item)
+        self._ready.set()
+
+    def unregister(self, item: _dataT) -> None:
+        try:
+            self._items.remove(item)
+        except ValueError:
+            pass
+        self._check_ready()
+
+    def clear(self) -> None:
+        self._items.clear()
+        self._ready.clear()

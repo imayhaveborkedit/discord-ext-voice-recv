@@ -11,7 +11,6 @@ from .utils import gap_wrapped, add_wrapped
 
 from typing import (
     TYPE_CHECKING,
-    overload,
     Protocol,
     TypeVar,
 )
@@ -19,7 +18,7 @@ from typing import (
 from .rtp import _PacketCmpMixin
 
 if TYPE_CHECKING:
-    from typing import Literal, Optional, List
+    from typing import Optional, List
     from .rtp import AudioPacket
 
 __all__ = [
@@ -163,13 +162,7 @@ class HeapJitterBuffer(BaseBuffer[PacketT]):
 
         return True
 
-    @overload
-    def pop(self, *, timeout: float = 1.0) -> Optional[AudioPacket]: ...
-
-    @overload
-    def pop(self, *, timeout: Literal[0]) -> Optional[AudioPacket]: ...
-
-    def pop(self, *, timeout=1.0):
+    def pop(self, *, timeout: float | None = 0) -> Optional[AudioPacket]:
         """
         If timeout is a positive number, wait as long as timeout for a packet
         to be ready and return that packet, otherwise return None.

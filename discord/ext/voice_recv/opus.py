@@ -29,8 +29,6 @@ __all__ = [
     'VoiceData',
 ]
 
-BUFFER_TIMEOUT: Final = 0.04
-
 
 class VoiceData:
     """Container object for audio data and source user."""
@@ -70,11 +68,20 @@ class PacketDecoder:
     def _get_cached_member(self) -> Optional[User]:
         return self._get_user(self._cached_id) if self._cached_id else None
 
+    def _flag_ready_state(self):
+        if self._buffer.peek():
+            self.router.waiter.register(self)
+        else:
+            self.router.waiter.unregister(self)
+
     def push_packet(self, packet: AudioPacket) -> None:
         self._buffer.push(packet)
+        self._flag_ready_state()
 
-    def pop_data(self, *, timeout: float = BUFFER_TIMEOUT) -> Optional[VoiceData]:
+    def pop_data(self, *, timeout: float = 0) -> Optional[VoiceData]:
         packet = self._get_next_packet(timeout)
+        self._flag_ready_state()
+
         if packet is None:
             return
 
@@ -87,10 +94,12 @@ class PacketDecoder:
         self._buffer.reset()
         self._decoder = None if self.sink.wants_opus() else Decoder()
         self._last_seq = self._last_ts = -1
+        self._flag_ready_state()
 
     def destroy(self) -> None:
         self._buffer.reset()
         self._decoder = None
+        self._flag_ready_state()
 
     def _get_next_packet(self, timeout: float) -> Optional[AudioPacket]:
         packet = self._buffer.pop(timeout=timeout)

@@ -8,7 +8,7 @@ import threading
 
 from collections import deque
 
-from .utils import LoopTimer
+from .utils import MultiDataEvent
 from .opus import PacketDecoder
 
 from typing import TYPE_CHECKING
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from typing import Tuple, Dict, List, Callable, Any, Optional
     from .rtp import RTPPacket, RTCPPacket
     from .sinks import AudioSink
-    from .voice_client import VoiceRecvClient
     from .reader import AudioReader
 
     EventCB = Callable[..., Any]
@@ -33,9 +32,9 @@ class PacketRouter(threading.Thread):
         self.sink: AudioSink = sink
         self.decoders: Dict[int, PacketDecoder] = {}
         self.reader: AudioReader = reader
+        self.waiter: MultiDataEvent[PacketDecoder] = MultiDataEvent()
 
         self._lock: threading.RLock = threading.RLock()
-        self._has_decoder: threading.Condition = threading.Condition()
         self._end_thread: threading.Event = threading.Event()
         self._dropped_ssrcs: deque[int] = deque(maxlen=16)
 
@@ -60,9 +59,7 @@ class PacketRouter(threading.Thread):
         with self._lock:
             decoder = self.decoders.get(ssrc)
             if decoder is None:
-                decoder = self.decoders.setdefault(ssrc, PacketDecoder(self, ssrc))
-                with self._has_decoder:
-                    self._has_decoder.notify_all()
+                decoder = self.decoders[ssrc] = PacketDecoder(self, ssrc)
 
             return decoder
 
@@ -94,6 +91,7 @@ class PacketRouter(threading.Thread):
 
     def stop(self) -> None:
         self._end_thread.set()
+        self.waiter.notify()
 
     def run(self) -> None:
         try:
@@ -103,33 +101,16 @@ class PacketRouter(threading.Thread):
             self.reader.error = e
         finally:
             self.reader.voice_client.stop_listening()
+            self.waiter.clear()
 
     def _do_run(self) -> None:
-        timer = LoopTimer(0.01)
-        timer.start()
-
         while not self._end_thread.is_set():
-            if not self.decoders:
-                with self._has_decoder:
-                    has_decoder = self._has_decoder.wait_for(lambda: self.decoders)
-                    if not has_decoder:
-                        continue
-
-                    # we have a decoder so reset the timer
-                    timer.start()
-
+            self.waiter.wait()
             with self._lock:
-                for decoder in self.decoders.values():
-                    # TODO: i dont like how this smells, rework with better synchronization primitives
-                    data = decoder.pop_data(timeout=0.001)
-
+                for decoder in self.waiter.items:
+                    data = decoder.pop_data()
                     if data is not None:
                         self.sink.write(data.source, data)
-
-            # we can end up in a busy loop if no decoders actually have any data
-            # so we do a sleep that sleeps up to 0.01 seconds per iteration, excluding time passed
-            timer.mark()
-            timer.sleep()
 
 
 class SinkEventRouter(threading.Thread):
