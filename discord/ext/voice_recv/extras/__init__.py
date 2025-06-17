@@ -1,1 +1,1 @@
-from .speechrecognition import *
+from . import speechrecognition
