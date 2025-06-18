@@ -25,9 +25,16 @@ with open('README.md') as f:
     readme = f.read()
 
 extras_require = {
+    'extras_speech': [
+        'SpeechRecognition',
+    ],
+    'extras_local': [
+        'pyaudio',
+    ],
     'extras': [
         'SpeechRecognition',
-    ]
+        'pyaudio',
+    ],
 }
 
 setup(
@@ -54,6 +61,7 @@ setup(
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'Operating System :: POSIX',
         'Operating System :: Microsoft :: Windows',
         'Operating System :: MacOS',

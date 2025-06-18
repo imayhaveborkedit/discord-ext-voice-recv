@@ -40,7 +40,7 @@ The overall API is designed to mirror the discord.py voice send API, with `Audio
 Batteries included in the form of useful built in `AudioSinks`.  Some to match their `AudioSource` counterpart, some I merely considered useful.  See... uh... TODO.
 
 ### Optional extras
-Slightly more complex included batteries that depend on external modules.  These live in `voice_recv.extras`.  For example, `voice_recv.extras.SpeechRecognitionSink` can be used if the speech_recognition module is available, and can be installed by adding the `extras` optional dependency during install, ex: `pip install discord-ext-voice-recv[extras]`.  More information will be added in the future.
+Slightly more complex included batteries that depend on external modules.  These live in `voice_recv.extras`.  They can be installed by adding their optional dependency during install, ex: `pip install discord-ext-voice-recv[extras_thing]`, or all of them can be installed by specifying `extras` instead.  See [Extras](#extras).
 
 ### More or less typed
 It's probably fine.
@@ -134,7 +134,7 @@ class MySink(AudioSink):
         self.do_something_like_handle_disconnect(ssrc)
 ```
 
-Note that these functions must be sync functions, as they are dispatched from a thread.  Trying to use an async function will result in an error.  This restriction only applies to sink listeners, and normal async event listeners will function as per usual.  The event listener dispatch thread is different from the one used to dispatch the `write()` callback so potential threadsafety issues should be considered.  A decorator argument to run the event callback in the other thread *may* be added later.
+Note that these functions must be sync functions, as they are dispatched from a thread.  Trying to use an async function will result in an error.  This restriction only applies to sink listeners, and normal async event listeners will function as per usual.  The event listener dispatch thread is different from the one used to dispatch the `write()` callback so potential thread safety issues should be considered.  A decorator argument to run the event callback in the other thread *may* be added later.
 
 ## New events
 ```python
@@ -194,6 +194,22 @@ def on_voice_member_speaking_start(member: discord.Member)
 def on_voice_member_speaking_stop(member: discord.Member)
 ```
 Virtual events for the state of the speaking indicator (the green circle).  These events are synthesized from packet activity and may not exactly match what is displayed in the discord client.  Due to performance issues with asyncio, this event is sink only and cannot be async.
+
+## Extras
+
+### `voice_recv.extras.speechrecognition`
+- Optional dependency: `extras_speech`
+- Requires module: `speech_recognition`
+- Provides: `SpeechRecognitionSink`
+
+A helper sink for using the `speech_recognition` module to perform speech-to-text conversion.  Generally depends on third party services for reasonable quality.  Results may vary.
+
+### `voice_recv.extras.localplayback`
+- Optional dependency: `extras_local`
+- Requires module: `pyaudio`
+- Provides: `LocalPlaybackSink`, `SimpleLocalPlaybackSink`
+  
+Helper sinks for playing audio through an audio output device the local system.  Defaults to the system default device, but other output devices can also be specified.
 
 ## Currently missing or WIP features
 - (WIP) Silence generation (pending rewrite)
