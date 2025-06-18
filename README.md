@@ -42,7 +42,7 @@ The overall API is designed to mirror the discord.py voice send API, with `Audio
 Batteries included in the form of useful built in `AudioSinks`.  Some to match their `AudioSource` counterpart, some I merely considered useful.  See... uh... TODO.
 
 ### Optional extras
-Slightly more complex included batteries that depend on external modules.  These live in `voice_recv.extras`.  They can be installed by adding their optional dependency during install, ex: `pip install discord-ext-voice-recv[extras_thing]`, or all of them can be installed by specifying `extras` instead.  See [Extras](#extras).
+Slightly more complex included batteries that depend on external packages.  These live in `voice_recv.extras`.  They can be installed by adding their optional dependency during install, ex: `pip install discord-ext-voice-recv[extras_thing]`, or all of them can be installed by specifying `extras` instead.  See [Extras](#extras).
 
 ### More or less typed
 It's probably fine.
@@ -201,14 +201,14 @@ Virtual events for the state of the speaking indicator (the green circle).  Thes
 
 ### `voice_recv.extras.speechrecognition`
 - Optional dependency: `extras_speech`
-- Requires module: `speech_recognition`
+- Requires package: `SpeechRecognition`
 - Provides: `SpeechRecognitionSink`
 
-A helper sink for using the `speech_recognition` module to perform speech-to-text conversion.  Generally depends on third party services for reasonable quality.  Results may vary.
+A helper sink for using `SpeechRecognition` to perform speech-to-text conversion.  Generally depends on third party services for reasonable quality.  Results may vary.
 
 ### `voice_recv.extras.localplayback`
 - Optional dependency: `extras_local`
-- Requires module: `pyaudio`
+- Requires package: `pyaudio`
 - Provides: `LocalPlaybackSink`, `SimpleLocalPlaybackSink`
   
 Helper sinks for playing audio through an audio output device the local system.  Defaults to the system default device, but other output devices can also be specified.
