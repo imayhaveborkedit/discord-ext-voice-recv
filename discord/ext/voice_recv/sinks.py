@@ -320,6 +320,9 @@ class WaveSink(AudioSink):
             log.warning("WaveSink got error closing file on cleanup", exc_info=True)
 
 
+WavSink = WaveSink
+
+
 class FFmpegSink(AudioSink):
     @overload
     def __init__(
@@ -331,8 +334,7 @@ class FFmpegSink(AudioSink):
         before_options: Optional[str] = None,
         options: Optional[str] = None,
         on_error: Optional[FFmpegErrorCB] = None,
-    ):
-        ...
+    ): ...
 
     @overload
     def __init__(
@@ -344,8 +346,7 @@ class FFmpegSink(AudioSink):
         before_options: Optional[str] = None,
         options: Optional[str] = None,
         on_error: Optional[FFmpegErrorCB] = None,
-    ):
-        ...
+    ): ...
 
     def __init__(
         self,

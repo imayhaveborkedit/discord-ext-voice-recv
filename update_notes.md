@@ -4,6 +4,7 @@ Notably, not a changelog, just notes.
 ## 0.5.2
 - Adds `extras.localplayback` module
 - Adds info about the extras modules to the readme
+- Adds `WavSink` as an alias to `WaveSink`
 - Fixed a member cleanup error in SpeechRecognitionSink
 - Changes the optional dependency format
   - Previously it was a single optional dep, `extras`.  Now there is a dependency per module, with `extras` installing all of them.  See the readme for details.
