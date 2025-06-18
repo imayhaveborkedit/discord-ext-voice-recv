@@ -13,12 +13,12 @@ __all__ = [
 ]
 
 try:
-    import speech_recognition as sr  # type: ignore
+    import speech_recognition as sr
 except ImportError:
 
-    def SpeechRecognitionSink(**kwargs) -> AudioSink:
-        """A stub for when the SpeechRecognition module isn't found."""
-        raise RuntimeError('The SpeechRecognition module is required to use this sink.')
+    def __getattr__(name: str):
+        if name in __all__:
+            raise RuntimeError('The SpeechRecognition module is required to use this sink.')
 
 else:
     import time
@@ -43,26 +43,30 @@ else:
 
         T = TypeVar('T')
 
+        # [r.split('_', 1)[1] for r in dir(sr.Recognizer()) if r.startswith("recognize")]
         SRRecognizerMethod = Literal[
-            'sphinx',
-            'google',
-            'google_cloud',
-            'wit',
+            'amazon',
+            'api',
+            'assemblyai',
             'azure',
             'bing',
-            'lex',
+            'faster_whisper',
+            'google',
+            'google_cloud',
+            'groq',
             'houndify',
-            'amazon',
-            'assemblyai',
             'ibm',
+            'lex',
+            'openai',
+            'sphinx',
             'tensorflow',
-            'whisper',
             'vosk',
+            'whisper',
+            'wit',
         ]
 
         class SRStopper(Protocol):
-            def __call__(self, wait: bool = True, /) -> None:
-                ...
+            def __call__(self, wait: bool = True, /) -> None: ...
 
         SRProcessDataCB = Callable[[sr.Recognizer, sr.AudioData, User], Optional[str]]
         SRTextCB = Callable[[User, str], Any]
@@ -72,7 +76,7 @@ else:
         recognizer: sr.Recognizer
         buffer: array.array[int]
 
-    class SpeechRecognitionSink(AudioSink):  # type: ignore
+    class SpeechRecognitionSink(AudioSink):
         def __init__(
             self,
             *,
@@ -95,7 +99,7 @@ else:
 
         def _await(self, coro: Awaitable[T]) -> CFuture[T]:
             assert self.client is not None
-            return asyncio.run_coroutine_threadsafe(coro, self.client.loop)
+            return asyncio.run_coroutine_threadsafe(coro, self.client.loop)  # type: ignore
 
         def wants_opus(self) -> bool:
             return False
@@ -132,8 +136,8 @@ else:
                 text: Optional[str] = None
                 try:
                     # they changed recognize_google to be optionally assigned at runtime...
-                    func = getattr(recognizer, 'recognize_' + self.default_recognizer, recognizer.recognize_google) # type: ignore
-                    text = func(audio)  # type: ignore
+                    func = getattr(recognizer, 'recognize_' + self.default_recognizer, recognizer.recognize_google)  # type: ignore
+                    text = func(audio)
                 except sr.UnknownValueError:
                     log.debug("Bad speech chunk")
                     # self._debug_audio_chunk(audio)
@@ -158,7 +162,10 @@ else:
                 self._drop(user_id)
 
         def _drop(self, user_id: int) -> None:
-            data = self._stream_data.pop(user_id)
+            data = self._stream_data.pop(user_id, None)
+            if data is None:
+                log.debug("Cannot drop user id: %s, no data", user_id)
+                return
 
             stopper = data.get('stopper')
             if stopper:
