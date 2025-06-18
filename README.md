@@ -6,6 +6,8 @@ Voice receive extension package for discord.py
 ## Warning
 **This extension should be more or less functional, but the code is not yet feature complete.  No guarantees are given for stability or random breaking changes.**
 
+See the [update notes](update_notes.md) for a poor excuse for a changelog.
+
 ## Installing
 **Python 3.8 or higher is required**, preferably at least 3.11 or whatever is latest
 
