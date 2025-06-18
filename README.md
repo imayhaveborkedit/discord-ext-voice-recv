@@ -119,11 +119,19 @@ These are the main functions of a sink, names and purpose reflecting that of the
 
 Additionally, sinks also have properties for their `client` and `voice_client`, as well as `parent` and `child`/`children` sinks.
 
-
 ### Built in Sinks
+This extension comes with several useful built in sinks, as well as a few [extras](#extras) mentioned later.  For a more information, you will have to [source dive](discord/ext/voice_recv/sinks.py) for now.
 
-This extension comes with several useful built in sinks, ... 
-For now just [source dive](discord/ext/voice_recv/sinks.py).  (TODO)
+- `AudioSink` - The base class for most sinks, similar in purpose to the discord.py `AudioSource`.
+  - `MultiAudioSink` - A sink that supports writing to multiple destination sinks.  Has no subclass implementations currently.  Generally intended to be extended by the user.
+  - `BasicSink` - A simple sink that operates based on a user provided callback.  Useful for testing or simple tasks not performed by other sinks.
+  - `WaveSink` - Writes audio data to a .wav file.  It does not fill in silence or mix audio from multiple users on its own.  `WavSink` is an alias for this sink.
+  - `FFmpegSink` - Uses ffmpeg to convert the audio stream to an arbitrary format, or whatever else ffmpeg can do to it.  Requires ffmpeg, but you should already have it working for discord.py.
+  - `PCMVolumeTransformer` - The AudioSink analog to the discord.py AudioSource version.  Does exactly the same thing: controls the volume.
+  - `ConditionalFilter` - Filters audio data based on a given predicate.  If the predicate fails for a packet, it is not written to the destination sink.
+    - `UserFilter` - A conditional filter to check if data is from a given user.
+    - `TimedFilter` - A conditional filter with a timer for how long it should operate.
+  - `SilenceGeneratorSink` - Generates silence to fill in audio transmission downtime for a continuous data stream.  **Note: This sink is pretty broken and buggy right now and slated for rewrite.  Usage is not advised.**
 
 ### Sink event listeners
 With AudioSinks being potentially more complex and stateful than AudioSources and the addition of new events, it is sometimes necessary to handle events in the context of a sink.  It would be rather awkward to have to register a sink function with `commands.Bot.add_listener()` while dealing with thread safety, and even more so using `discord.Client`.  To remedy this, listeners can be defined within sinks, similarly to how they work in Cogs.
@@ -210,11 +218,11 @@ A helper sink for using `SpeechRecognition` to perform speech-to-text conversion
 - Optional dependency: `extras_local`
 - Requires package: `pyaudio`
 - Provides: `LocalPlaybackSink`, `SimpleLocalPlaybackSink`
-  
+
 Helper sinks for playing audio through an audio output device the local system.  Defaults to the system default device, but other output devices can also be specified.
 
 ## Currently missing or WIP features
-- (WIP) Silence generation (pending rewrite)
+- Silence generation (WIP, pending rewrite)
 
 ## Future plans
 - Muxer AudioSink (mixes multiple audio streams into a single stream)
