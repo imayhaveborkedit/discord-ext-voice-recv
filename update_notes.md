@@ -14,7 +14,7 @@ Notably, not a changelog, just notes.
 - Changes `voice_recv.extras` import semantics
   - The `__all__` contents of the extras modules are no longer `*` imported into `voice_recv.extras` (this was only `extras.SpeechRecognitionSink`).  You will have to access them directly, or import that specific extra module.  Example:
     ```py
-    from discorc.ext.voice_recv.extras.speechrecognition import SpeechRecognitionSink
+    from discord.ext.voice_recv.extras.speechrecognition import SpeechRecognitionSink
     # or
     from discord.ext.voice_recv.extras import speechrecognition
     sink = speechrecognition.SpeechRecognitionSink(...)
