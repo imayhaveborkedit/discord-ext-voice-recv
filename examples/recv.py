@@ -14,13 +14,13 @@ class Testing(commands.Cog):
     @commands.command()
     async def test(self, ctx):
         def callback(user, data: voice_recv.VoiceData):
-            print(f"Got packet from {user}")
 
             ## voice power level, how loud the user is speaking
-            # ext_data = packet.extension_data.get(voice_recv.ExtensionID.audio_power)
-            # value = int.from_bytes(ext_data, 'big')
-            # power = 127-(value & 127)
-            # print('#' * int(power * (79/128)))
+            ext_data = data.packet.extension_data.get(voice_recv.ExtensionID.audio_power)
+            value = int.from_bytes(ext_data, 'big') # type: ignore
+            power = 127-(value & 127)
+            print(f"Got packet from \033[1;32;40m{user}\033[0m : {'#' * int(power * (79/128))}")
+            ##changes text to green on black^              ^reverses it back to default white on black
             ## instead of 79 you can use shutil.get_terminal_size().columns-1
 
         vc = await ctx.author.voice.channel.connect(cls=voice_recv.VoiceRecvClient)
