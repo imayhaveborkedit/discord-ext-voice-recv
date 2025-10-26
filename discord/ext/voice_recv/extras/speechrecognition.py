@@ -89,7 +89,7 @@ else:
             super().__init__(None)
             self.process_cb: Optional[SRProcessDataCB] = process_cb
             self.text_cb: Optional[SRTextCB] = text_cb
-            self.phrase_time_limmit: int = phrase_time_limit
+            self.phrase_time_limit: int = phrase_time_limit
             self.ignore_silence_packets: bool = ignore_silence_packets
 
             self.default_recognizer: SRRecognizerMethod = default_recognizer
@@ -116,7 +116,7 @@ else:
 
             if not sdata['stopper']:
                 sdata['stopper'] = sdata['recognizer'].listen_in_background(
-                    DiscordSRAudioSource(sdata['buffer']), self.background_listener(user), self.phrase_time_limmit
+                    DiscordSRAudioSource(sdata['buffer']), self.background_listener(user), self.phrase_time_limit
                 )
 
         def background_listener(self, user: User):
