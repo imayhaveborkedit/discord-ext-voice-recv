@@ -56,6 +56,7 @@ class PacketDecoder:
 
         self._last_seq: int = -1
         self._last_ts: int = -1
+        self._decode_errors: int = 0
 
     @property
     def sink(self) -> AudioSink:
@@ -149,12 +150,16 @@ class PacketDecoder:
     def _decode_packet(self, packet: AudioPacket) -> Tuple[AudioPacket, bytes]:
         assert self._decoder is not None
 
-        # Decode as per usual
         if packet:
             try:
                 pcm = self._decoder.decode(packet.decrypted_data, fec=False)
+                self._decode_errors = 0
             except Exception as e:
-                log.warning("Opus decode failed: %s", e)
+                self._decode_errors += 1
+                if self._decode_errors <= 3:
+                    log.debug("Opus decode failed: %s", e)
+                elif self._decode_errors % 100 == 0:
+                    log.warning("Opus decode failed repeatedly: %d times, last error: %s", self._decode_errors, e)
                 return packet, b''
             return packet, pcm
 
