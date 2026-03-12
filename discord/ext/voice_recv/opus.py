@@ -151,7 +151,11 @@ class PacketDecoder:
 
         # Decode as per usual
         if packet:
-            pcm = self._decoder.decode(packet.decrypted_data, fec=False)
+            try:
+                pcm = self._decoder.decode(packet.decrypted_data, fec=False)
+            except Exception as e:
+                log.warning("Opus decode failed: %s", e)
+                return packet, b''
             return packet, pcm
 
         # Fake packet, need to check next one to use fec
