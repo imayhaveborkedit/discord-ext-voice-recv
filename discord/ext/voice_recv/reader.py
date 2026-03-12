@@ -143,7 +143,7 @@ class AudioReader:
                 packet = rtcp_packet = rtp.decode_rtcp(self.decryptor.decrypt_rtcp(packet_data))
 
                 if not isinstance(packet, rtp.ReceiverReportPacket):
-                    log.info("Received unexpected rtcp packet: type=%s, %s", packet.type, type(packet))
+                    log.debug("Received unexpected rtcp packet: type=%s, %s", packet.type, type(packet))
                     log.debug("Packet info:\n  packet=%s\n  data=%s", packet, packet_data)
         except CryptoError as e:
             log.error("CryptoError decoding packet data")
