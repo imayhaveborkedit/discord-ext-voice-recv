@@ -10,7 +10,7 @@ from .buffer import HeapJitterBuffer as JitterBuffer
 from .rtp import FakePacket
 from .utils import add_wrapped
 
-from discord.opus import Decoder
+from discord.opus import Decoder, OpusError
 
 if TYPE_CHECKING:
     from typing import Optional, Tuple, Dict, Callable, Any
@@ -61,6 +61,64 @@ class PacketDecoder:
     def sink(self) -> AudioSink:
         return self.router.sink
 
+    def _stats_inc(self, key: str, value: int = 1) -> None:
+        stats = getattr(self.router.reader, 'analysis_stats', None)
+        if stats:
+            stats.inc(key, value)
+
+    def _stats_add_pcm(self, pcm_len: int) -> None:
+        stats = getattr(self.router.reader, 'analysis_stats', None)
+        if stats:
+            stats.add_pcm(pcm_len)
+
+    def _stats_add_opus_probe(
+        self,
+        *,
+        payload: bytes,
+        frames: Optional[int],
+        samples_per_frame: Optional[int],
+        frame_size: Optional[int],
+        header_ok: bool,
+        packet: AudioPacket,
+    ) -> None:
+        stats = getattr(self.router.reader, 'analysis_stats', None)
+        if stats:
+            stats.add_opus_probe(
+                ssrc=self.ssrc,
+                seq=packet.sequence,
+                ts=packet.timestamp,
+                payload_len=len(payload),
+                frames=frames,
+                samples_per_frame=samples_per_frame,
+                frame_size=frame_size,
+                header_ok=header_ok,
+            )
+
+    def _stats_add_decode_error_sample(
+        self,
+        *,
+        stage: str,
+        packet: AudioPacket,
+        payload: bytes,
+        frames: Optional[int],
+        samples_per_frame: Optional[int],
+        frame_size: Optional[int],
+        exc: Exception,
+    ) -> None:
+        stats = getattr(self.router.reader, 'analysis_stats', None)
+        if stats:
+            stats.add_decode_error_sample(
+                stage=stage,
+                ssrc=self.ssrc,
+                seq=packet.sequence,
+                ts=packet.timestamp,
+                payload=payload,
+                frames=frames,
+                samples_per_frame=samples_per_frame,
+                frame_size=frame_size,
+                exc_text=str(exc),
+            )
+
     def _get_user(self, user_id: int) -> Optional[User]:
         vc: VoiceRecvClient = self.sink.voice_client  # type: ignore
         return vc.guild.get_member(user_id) or vc.client.get_user(user_id)
@@ -105,19 +163,13 @@ class PacketDecoder:
         packet = self._buffer.pop(timeout=timeout)
 
         if packet is None:
-            # Gets the last (buffered) packet out (i think)
-            # TODO: revist this, might be an issue
             if self._buffer:
-                packets = self._buffer.flush()
-                if any(packets[1:]):
-                    log.warning(
-                        "%s packets were lost being flushed in decoder-%s\n --> (last=%s) %s",
-                        len(packets) - 1,
-                        self.ssrc,
-                        self._last_seq,
-                        [p.sequence for p in packets],
-                    )
-                return packets[0]
+                # If the next packet is not sequential yet, emit one synthetic
+                # packet and advance the jitter buffer cursor for PLC/FEC flow.
+                if self._buffer.gap() > 0:
+                    self._buffer.advance()
+                    self._stats_inc('jitter_synthetic_packets')
+                    return self._make_fakepacket()
             return
         elif not packet:
             packet = self._make_fakepacket()
@@ -151,7 +203,59 @@ class PacketDecoder:
 
         # Decode as per usual
         if packet:
-            pcm = self._decoder.decode(packet.decrypted_data, fec=False)
+            ext = getattr(packet, 'extension_data', None)
+            if isinstance(ext, dict) and ext.get('_voice_recv_needs_dave_inner_decrypt'):
+                self._stats_inc('dave_inner_decode_skipped')
+                self._stats_add_pcm(0)
+                return packet, b''
+
+            payload: bytes = packet.decrypted_data or b''
+            frames: Optional[int] = None
+            samples_per_frame: Optional[int] = None
+            frame_size: Optional[int] = None
+            header_ok = True
+            try:
+                frames = self._decoder.packet_get_nb_frames(payload)
+                samples_per_frame = self._decoder.packet_get_samples_per_frame(payload)
+                if frames <= 0 or samples_per_frame <= 0:
+                    header_ok = False
+                else:
+                    frame_size = frames * samples_per_frame
+            except Exception:
+                header_ok = False
+
+            self._stats_add_opus_probe(
+                payload=payload,
+                frames=frames,
+                samples_per_frame=samples_per_frame,
+                frame_size=frame_size,
+                header_ok=header_ok,
+                packet=packet,
+            )
+            try:
+                pcm = self._decoder.decode(payload, fec=False)
+                self._stats_inc('opus_decode_ok')
+            except OpusError as exc:
+                log.debug(
+                    "Opus decode failed for ssrc=%s seq=%s ts=%s: %s",
+                    self.ssrc,
+                    packet.sequence,
+                    packet.timestamp,
+                    exc,
+                )
+                # Keep pipeline alive when payload is still DAVE-wrapped or frame is damaged.
+                pcm = b''
+                self._stats_inc('opus_decode_err')
+                self._stats_add_decode_error_sample(
+                    stage='decode',
+                    packet=packet,
+                    payload=payload,
+                    frames=frames,
+                    samples_per_frame=samples_per_frame,
+                    frame_size=frame_size,
+                    exc=exc,
+                )
+            self._stats_add_pcm(len(pcm))
             return packet, pcm
 
         # Fake packet, need to check next one to use fec
@@ -165,10 +269,48 @@ class PacketDecoder:
                 packet.sequence,
                 next_packet.sequence,
             )
-            pcm = self._decoder.decode(nextdata, fec=True)
+            try:
+                pcm = self._decoder.decode(nextdata, fec=True)
+                self._stats_inc('opus_fec_ok')
+            except OpusError as exc:
+                log.debug(
+                    "Opus FEC decode failed for ssrc=%s fake_seq=%s next_seq=%s: %s",
+                    self.ssrc,
+                    packet.sequence,
+                    next_packet.sequence,
+                    exc,
+                )
+                pcm = b''
+                self._stats_inc('opus_fec_err')
+                self._stats_add_decode_error_sample(
+                    stage='fec',
+                    packet=packet,
+                    payload=nextdata,
+                    frames=None,
+                    samples_per_frame=None,
+                    frame_size=None,
+                    exc=exc,
+                )
 
         # Need to drop a packet
         else:
-            pcm = self._decoder.decode(None, fec=False)
+            try:
+                pcm = self._decoder.decode(None, fec=False)
+                self._stats_inc('opus_plc_ok')
+            except OpusError as exc:
+                log.debug("Opus PLC decode failed for ssrc=%s seq=%s: %s", self.ssrc, packet.sequence, exc)
+                pcm = b''
+                self._stats_inc('opus_plc_err')
+                self._stats_add_decode_error_sample(
+                    stage='plc',
+                    packet=packet,
+                    payload=b'',
+                    frames=None,
+                    samples_per_frame=None,
+                    frame_size=None,
+                    exc=exc,
+                )
+
+        self._stats_add_pcm(len(pcm))
 
         return packet, pcm

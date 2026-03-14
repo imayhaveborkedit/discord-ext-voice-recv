@@ -25,6 +25,18 @@ Naturally, this extension depends on `discord.py` being installed with voice sup
 ## Example
 See the [example script](examples/recv.py).
 
+A slash-command based traffic test example is also available at [examples/recv.py](examples/recv.py).
+
+```bash
+export DISCORD_BOT_TOKEN=your_bot_token
+export DISCORD_GUILD_ID=your_guild_id
+# Optional: capture voice WS events to JSONL
+# export VOICE_RECV_DEBUG_WS_PATH=/tmp/voice_ws_<guild_id>.jsonl
+python examples/recv.py
+```
+
+The test script writes per-speaker WAV files and periodically logs receive diagnostics.
+
 ## Feature overview
 ### Custom VoiceProtocol client
 No monkey patching or bizarre hacks required.  Simply use the library feature to use `VoiceRecvClient` as the voice client class.  See [Usage](#usage).
@@ -58,11 +70,12 @@ voice_client = await voice_channel.connect(cls=voice_recv.VoiceRecvClient)
 
 ### New voice client functions
 ```python
-def listen(sink: voice_recv.AudioSink, *, after=None) -> None
+def listen(sink: voice_recv.AudioSink, *, after=None, debug_ws_path: str | None = None) -> None
 ```
 Receives audio data into an `AudioSink`.  A sink is similar to the `AudioSource` class, where most of the logic is done in a single callback function, but in reverse.  Sinks are explained in detail in the [Sinks](#sinks) section below.
 
 The finalizer, `after` is called after the sink has been exhausted or an error occurred.  The callback signature is the same as the after callback for `play()`, one parameter for an optional Exception object.
+`debug_ws_path` is optional and enables voice WS JSONL capture only when provided.
 
 ```python
 def is_listening() -> bool

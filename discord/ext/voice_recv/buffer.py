@@ -217,10 +217,22 @@ class HeapJitterBuffer(BaseBuffer[PacketT]):
         popped and the currently held next packet.  Returns 0 otherwise.
         """
 
-        if self._buffer and self._last_tx_seq > 0:
+        if self._buffer and self._last_tx_seq >= 0:
             return gap_wrapped(self._last_tx_seq, self._buffer[0].sequence)
 
         return 0
+
+    def advance(self, count: int = 1) -> None:
+        """
+        Advance the internal transmitted sequence without consuming a packet.
+        Used when the caller emits synthetic concealment frames.
+        """
+
+        if count < 1 or self._last_tx_seq < 0:
+            return
+
+        self._last_tx_seq = add_wrapped(self._last_tx_seq, count)
+        self._update_has_item()
 
     def flush(self) -> List[AudioPacket]:
         """

@@ -228,15 +228,24 @@ class RTPPacket(_PacketCmpMixin):
             data = self.header[-4:] + data
 
         # data is the decrypted packet payload containing the extension header and opus data
+        if len(data) < 4:
+            self.extension = self._ext_header(b'', 0, ())
+            return 0
+
         profile, length = struct.unpack_from('>2sH', data)
 
         if profile == self._ext_magic:
             self._parse_bede_header(data, length)
 
-        values = struct.unpack('>%sI' % length, data[4 : 4 + length * 4])
-        self.extension = self._ext_header(profile, length, values)
+        max_words = max((len(data) - 4) // 4, 0)
+        safe_length = min(length, max_words)
+        if safe_length > 0:
+            values = struct.unpack('>%sI' % safe_length, data[4 : 4 + safe_length * 4])
+        else:
+            values = ()
+        self.extension = self._ext_header(profile, safe_length, values)
 
-        offset = 4 + length * 4
+        offset = 4 + safe_length * 4
         if self._rtpsize:
             # remove the extra offset from adding the header in
             offset -= 4
@@ -249,7 +258,12 @@ class RTPPacket(_PacketCmpMixin):
         n = 0
 
         while n < length:
+            if offset >= len(data):
+                break
+
             next_byte = data[offset : offset + 1]
+            if not next_byte:
+                break
 
             if next_byte == b'\x00':
                 offset += 1
@@ -259,9 +273,12 @@ class RTPPacket(_PacketCmpMixin):
 
             element_id = header >> 4
             element_len = 1 + (header & 0b0000_1111)
+            end = offset + 1 + element_len
+            if end > len(data):
+                break
 
-            self.extension_data[element_id] = data[offset + 1 : offset + 1 + element_len]
-            offset += 1 + element_len
+            self.extension_data[element_id] = data[offset + 1 : end]
+            offset = end
             n += 1
 
     def _dump_info(self) -> str:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import struct
 
 from discord.enums import SpeakingState, try_enum
 
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# https://cdn.discordapp.com/attachments/381887113391505410/1094473412623204533/image.png
+# https://docs.discord.com/developers/topics/opcodes-and-status-codes#voice
 # fmt: off
 IDENTIFY                  = 0
 SELECT_PROTOCOL           = 1
@@ -43,7 +44,73 @@ CHANNEL_OPTIONS_UPDATE    = 17 # (dead)
 FLAGS                     = 18
 SPEED_TEST                = 19 # (dead)
 PLATFORM                  = 20
+DAVE_PREPARE_TRANSITION        = 21
+DAVE_EXECUTE_TRANSITION        = 22
+DAVE_TRANSITION_READY          = 23
+DAVE_PREPARE_EPOCH             = 24
+MLS_EXTERNAL_SENDER            = 25
+MLS_KEY_PACKAGE                = 26
+MLS_PROPOSALS                  = 27
+MLS_COMMIT_WELCOME             = 28
+MLS_ANNOUNCE_COMMIT_TRANSITION = 29
+MLS_WELCOME                    = 30
+MLS_INVALID_COMMIT_WELCOME     = 31
 # fmt: on
+
+DAVE_AND_MLS_OPCODES = frozenset(
+    {
+        DAVE_PREPARE_TRANSITION,
+        DAVE_EXECUTE_TRANSITION,
+        DAVE_TRANSITION_READY,
+        DAVE_PREPARE_EPOCH,
+        MLS_EXTERNAL_SENDER,
+        MLS_KEY_PACKAGE,
+        MLS_PROPOSALS,
+        MLS_COMMIT_WELCOME,
+        MLS_ANNOUNCE_COMMIT_TRANSITION,
+        MLS_WELCOME,
+        MLS_INVALID_COMMIT_WELCOME,
+    }
+)
+
+_BINARY_HOOK_PATCHED = False
+
+
+def install_binary_ws_hook() -> None:
+    global _BINARY_HOOK_PATCHED
+    if _BINARY_HOOK_PATCHED:
+        return
+
+    from discord.gateway import DiscordVoiceWebSocket
+
+    original = DiscordVoiceWebSocket.received_binary_message
+    if getattr(original, "__voice_recv_binary_hook__", False):
+        _BINARY_HOOK_PATCHED = True
+        return
+
+    async def wrapped(self: DiscordVoiceWebSocket, msg: bytes):  # type: ignore[misc]
+        op = -1
+        seq = None
+        body = b""
+
+        if len(msg) >= 3:
+            seq = struct.unpack_from(">H", msg, 0)[0]
+            op = msg[2]
+            body = msg[3:]
+
+        vc = getattr(getattr(self, "_connection", None), "voice_client", None)
+        cb = getattr(vc, "_update_voice_ws_binary_state", None) if vc is not None else None
+        if op >= 0 and callable(cb):
+            try:
+                cb(op, body, seq=seq, raw_len=len(msg))
+            except Exception:
+                log.exception("Failed to capture voice websocket binary event: op=%s", op)
+
+        return await original(self, msg)
+
+    setattr(wrapped, "__voice_recv_binary_hook__", True)
+    DiscordVoiceWebSocket.received_binary_message = wrapped
+    _BINARY_HOOK_PATCHED = True
 
 
 async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
@@ -61,6 +128,8 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
             m.pop('op')
             m.pop('d')
             log.info("WS payload has extra keys: %s", m)
+
+    vc._update_voice_ws_state(op, data, raw_message=msg)
 
     if op == self.READY:
         vc._add_ssrc(vc.guild.me.id, data['ssrc'])
@@ -93,6 +162,7 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
         vc._add_ssrc(uid, data['audio_ssrc'])
         member = vc.guild.get_member(uid)
         streams = VoiceVideoStreams(data=cast('VoiceVideoPayload', data), vc=vc)
+        vc._update_video_ssrcs(uid, streams)
         vc.dispatch("voice_member_video", member, streams)
 
     elif op == CLIENT_DISCONNECT:
@@ -120,3 +190,6 @@ async def hook(self: DiscordVoiceWebSocket, msg: Dict[str, Any]):
             member,
             try_enum(VoicePlatform, data['platform']) if data['platform'] is not None else None,
         )
+
+    elif op in DAVE_AND_MLS_OPCODES:
+        vc.dispatch("voice_dave_opcode", op, data)

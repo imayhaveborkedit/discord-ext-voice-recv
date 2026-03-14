@@ -6,6 +6,7 @@ from .sinks import *
 from .video import *
 from .opus import *
 from .rtp import *
+from .dave import *
 from .enums import *
 
 from . import (
