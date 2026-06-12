@@ -108,10 +108,12 @@ class PacketRouter(threading.Thread):
             self.waiter.wait()
             with self._lock:
                 for decoder in self.waiter.items:
-                    data = decoder.pop_data()
-                    if data is not None:
-                        self.sink.write(data.source, data)
-
+                    try:
+                        data = decoder.pop_data()
+                        if data is not None:
+                            self.sink.write(data.source, data)
+                    except Exception:
+                        continue
 
 class SinkEventRouter(threading.Thread):
     def __init__(self, sink: AudioSink, reader: AudioReader):
