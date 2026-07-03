@@ -12,6 +12,11 @@ from .utils import add_wrapped
 
 from discord.opus import Decoder
 
+try:
+    import davey
+except ImportError:
+    davey = None
+
 if TYPE_CHECKING:
     from typing import Optional, Tuple, Dict, Callable, Any
     from .rtp import AudioPacket
@@ -131,8 +136,6 @@ class PacketDecoder:
 
     def _process_packet(self, packet: AudioPacket) -> VoiceData:
         pcm = None
-        if not self.sink.wants_opus():
-            packet, pcm = self._decode_packet(packet)
 
         member = self._get_cached_member()
 
@@ -140,11 +143,56 @@ class PacketDecoder:
             self._cached_id = self.sink.voice_client._get_id_from_ssrc(self.ssrc)  # type: ignore
             member = self._get_cached_member()
 
+        self._dave_decrypt(packet)
+
+        if not self.sink.wants_opus():
+            packet, pcm = self._decode_packet(packet)
+
         data = VoiceData(packet, member, pcm=pcm)
         self._last_seq = packet.sequence
         self._last_ts = packet.timestamp
 
         return data
+
+    def _dave_decrypt(self, packet: AudioPacket) -> None:
+        """Decrypt a DAVE (E2EE) frame in place, using the DaveSession that
+        discord.py (>=2.7, with davey) already maintains for sending.
+
+        Discord voice calls are end-to-end encrypted and do NOT downgrade
+        just because a non-DAVE receiver is present: after transport
+        decryption every real voice frame is still MLS ciphertext, so opus
+        decode fails with 'corrupted stream' on all of them.
+
+        Frames that are not E2EE (silence/keepalive frames arrive as
+        plaintext) make decrypt raise — those fall through unchanged and
+        decode fine as-is.
+        """
+        if davey is None or not packet or not packet.decrypted_data:
+            return
+
+        state = getattr(self.sink.voice_client, '_connection', None)
+        session = getattr(state, 'dave_session', None)
+        if (
+            session is None
+            or not session.ready
+            or getattr(state, 'dave_protocol_version', 0) == 0
+        ):
+            return
+
+        user_id = self._cached_id
+        if user_id is None:
+            # SSRC not mapped to a user yet — without the sender we cannot
+            # pick the right ratchet; leave the frame for normal handling.
+            return
+
+        try:
+            packet.decrypted_data = session.decrypt(
+                int(user_id), davey.MediaType.audio, bytes(packet.decrypted_data)
+            )
+        except Exception as e:
+            # Expected for passthrough (unencrypted) frames; anything else is
+            # still better decoded-or-dropped than crashing the router.
+            log.debug('DAVE decrypt failed for ssrc %s: %s', self.ssrc, e)
 
     def _decode_packet(self, packet: AudioPacket) -> Tuple[AudioPacket, bytes]:
         assert self._decoder is not None
