@@ -19,6 +19,14 @@ try:
 except ImportError as e:
     raise RuntimeError("pynacl is required") from e
 
+# davey provides the MLS/DAVE (end-to-end voice encryption) implementation.
+# It is an optional dependency (pulled in by discord.py[voice]); when it's
+# missing we simply don't attempt the second decryption layer.
+try:
+    import davey
+except ImportError:
+    davey = None  # type: ignore
+
 if TYPE_CHECKING:
     from typing import Optional, Callable, Any, Dict, Literal, Union
 
@@ -133,12 +141,58 @@ class AudioReader:
     def _is_ip_discovery_packet(self, data: bytes) -> bool:
         return len(data) == 74 and data[1] == 0x02
 
+    def _dave_decrypt(self, packet: RTPPacket) -> bool:
+        """Decrypts the DAVE (MLS end-to-end) layer of ``packet`` in place.
+
+        Returns ``True`` if the payload is ready to be decoded (either it was
+        decrypted successfully or no DAVE session is active), or ``False`` if the
+        packet should be dropped.  Packets are dropped when we don't yet have a
+        decryptor for the sender or the session isn't ready, which normally
+        happens transiently around MLS epoch transitions.
+        """
+        # davey isn't installed, so DAVE can't be in use for this connection.
+        if davey is None:
+            return True
+
+        # discord.py owns the MLS handshake and stores the session here.  It is
+        # recreated across epoch transitions, so it's read fresh every packet.
+        session = getattr(self.voice_client._connection, 'dave_session', None)
+        if session is None:
+            return True
+
+        user_id = self.voice_client._get_id_from_ssrc(packet.ssrc)
+        if user_id is None:
+            # Without knowing the sender we can't pick a decryptor; drop for now.
+            return False
+
+        try:
+            decrypted = session.decrypt(user_id, davey.MediaType.audio, packet.decrypted_data)
+        except Exception as e:
+            # e.g. NoDecryptorForUser / NotReady during epoch transitions.
+            log.debug("DAVE decrypt failed for ssrc=%s user=%s: %s", packet.ssrc, user_id, e)
+            return False
+
+        if decrypted is None:
+            return False
+
+        packet.decrypted_data = decrypted
+        return True
+
     def callback(self, packet_data: bytes) -> None:
         packet = rtp_packet = rtcp_packet = None
         try:
             if not rtp.is_rtcp(packet_data):
                 packet = rtp_packet = rtp.decode_rtp(packet_data)
                 packet.decrypted_data = self.decryptor.decrypt_rtp(packet)
+
+                # DAVE (MLS) is a second, end-to-end encryption layer applied on
+                # top of the transport layer.  When a session is active the opus
+                # payload is still encrypted at this point and has to be decrypted
+                # before it can be decoded.  If the packet can't be decrypted yet
+                # (e.g. during an epoch transition) it is dropped.
+                if not self._dave_decrypt(packet):
+                    packet = rtp_packet = None
+                    return
             else:
                 packet = rtcp_packet = rtp.decode_rtcp(self.decryptor.decrypt_rtcp(packet_data))
 
