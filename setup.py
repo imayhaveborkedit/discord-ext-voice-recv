@@ -40,7 +40,7 @@ extras_require = {
 setup(
     name='discord-ext-voice_recv',
     author='Imayhaveborkedit',
-    url='https://github.com/imayhaveborkedit/discord-ext-voice-recv',
+    url='https://github.com/idoldange/discord-ext-voice-recv',
     version=version,
     packages=['discord.ext.voice_recv', 'discord.ext.voice_recv.extras'],
     license='MIT',
@@ -49,7 +49,7 @@ setup(
     long_description_content_type='text/markdown',
     include_package_data=True,
     python_requires='>=3.8',
-    install_requires=['discord.py[voice]>=2.5'],
+    install_requires=['discord.py[voice]>=2.5', 'davey>=0.1.4'],
     extras_require=extras_require,
     zip_safe=False,
     classifiers=[

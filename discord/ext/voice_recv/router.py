@@ -108,7 +108,13 @@ class PacketRouter(threading.Thread):
             self.waiter.wait()
             with self._lock:
                 for decoder in self.waiter.items:
-                    data = decoder.pop_data()
+                    try:
+                        data = decoder.pop_data()
+                    except Exception:
+                        # One broken stream (bad frame, decoder error...) must not stop everyone's audio.
+                        log.exception("Error processing packet in decoder-%s, dropping it", decoder.ssrc)
+                        continue
+
                     if data is not None:
                         self.sink.write(data.source, data)
 

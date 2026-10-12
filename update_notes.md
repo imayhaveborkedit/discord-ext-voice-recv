@@ -1,6 +1,17 @@
 # Update notes
 Notably, not a changelog, just notes.
 
+## 0.5.4 (idoldange fork)
+- Adds receive support for Discord's DAVE end-to-end encrypted voice calls (requires discord.py with DAVE support and `davey`)
+  - After transport decryption every voice frame is MLS ciphertext, so opus used to fail with `corrupted stream`.  Frames are now decrypted with the `DaveSession` discord.py already keeps for sending.
+  - Frames that cannot be decrypted (session not ready, ssrc not mapped to a user yet, mid epoch transition) are dropped instead of being fed to opus.
+  - Silence frames and non-E2EE calls (protocol version 0) pass through untouched.
+  - The FEC path peeks at the next, still encrypted, packet; it is now decrypted exactly once before use.
+- Opus decode errors no longer escape: they fall back to packet loss concealment, then to a silent frame.
+- A decoder raising inside the packet router no longer stops listening for every user; the frame is logged and dropped.
+- Adds `tests/test_dave.py`
+- Credit: the idea of decrypting through discord.py's `DaveSession` comes from upstream PRs #54 and #58
+
 ## 0.5.2
 - Adds `extras.localplayback` module
 - Adds info about the extras modules to the readme

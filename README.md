@@ -1,3 +1,7 @@
+> **idoldange fork:** adds DAVE (E2EE) voice receive on top of upstream 0.5.3a, see `update_notes.md`.
+> Needs a discord.py build with DAVE support plus `davey`.
+> `python -m pip install git+https://github.com/idoldange/discord-ext-voice-recv`
+
 ![PyPI - Version](https://img.shields.io/pypi/v/discord-ext-voice-recv?color=dodgerblue&link=https%3A%2F%2Fpypi.org%2Fproject%2Fdiscord-ext-voice-recv%2F)
 
 # discord-ext-voice-recv
