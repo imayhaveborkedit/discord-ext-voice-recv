@@ -60,7 +60,12 @@ class PacketDecoder:
         self._cached_id: Optional[int] = None
 
         self.vc: VoiceRecvClient = self.sink.voice_client # type: ignore
-        self.vc._connection.dave_session.set_passthrough_mode(True, 10)
+        # 0.5.4a: dave_session is None when the call isn't E2EE (protocol 0 /
+        # downgraded). Calling it unguarded raised AttributeError inside
+        # feed_rtp, which stopped the whole reader.
+        dave_session = getattr(self.vc._connection, 'dave_session', None)
+        if dave_session is not None:
+            dave_session.set_passthrough_mode(True, 10)
 
         self._last_seq: int = -1
         self._last_ts: int = -1
@@ -151,7 +156,11 @@ class PacketDecoder:
                 packet.decrypted_data = self.vc._connection.dave_session.decrypt(member.id, MediaType.audio,
                                                                                 bytes(
                                                                                     packet.decrypted_data))  # type: ignore
-            except:
+            except Exception:
+                # counted so callers can tell a dead DAVE session from silence
+                reader = getattr(self.router, 'reader', None)
+                if reader is not None and hasattr(reader, 'dave_failures'):
+                    reader.dave_failures += 1
                 self._last_seq = packet.sequence
                 self._last_ts = packet.timestamp
                 return VoiceData(packet, None, pcm=b'')

@@ -60,11 +60,79 @@ class AudioReader:
         self.speaking_timer: SpeakingTimer = SpeakingTimer(self)
         self.keepalive: UDPKeepAlive = UDPKeepAlive(voice_client)
 
+        # Decryption health (0.5.4a). A reader holding a stale session key
+        # (upstream #59) fails every packet; these let callers see it.
+        self.decrypt_ok: int = 0
+        self.crypto_errors: int = 0
+        self.key_resyncs: int = 0
+        self.dave_failures: int = 0
+        self.last_decrypt_ok: float = 0.0
+        self._crypto_log_at: float = 0.0
+        self._crypto_log_pending: int = 0
+
     def is_listening(self) -> bool:
         return self.active
 
     def update_secret_key(self, secret_key: bytes) -> None:
         self.decryptor.update_secret_key(secret_key)
+
+    def _resync_secret_key(self) -> bool:
+        """Re-read the voice client's CURRENT session key. True only if it
+        differs from the key we decrypt with (stale key, upstream #59)."""
+        key = getattr(self.voice_client, 'secret_key', None)
+        if not key:
+            return False
+        try:
+            key = bytes(key)
+        except Exception:
+            return False
+        if key == self.decryptor.key:
+            return False
+        self.update_secret_key(key)
+        self.key_resyncs += 1
+        log.warning("Voice session key changed under the reader; re-synced (%s total)", self.key_resyncs)
+        return True
+
+    def _decrypt(self, packet_data: bytes):
+        """Decode + decrypt one datagram. On CryptoError, re-sync the key
+        once and retry; a second failure propagates."""
+        for attempt in (0, 1):
+            try:
+                if not rtp.is_rtcp(packet_data):
+                    packet = rtp.decode_rtp(packet_data)
+                    packet.decrypted_data = self.decryptor.decrypt_rtp(packet)
+                    return packet, True
+                return rtp.decode_rtcp(self.decryptor.decrypt_rtcp(packet_data)), False
+            except CryptoError:
+                if attempt or not self._resync_secret_key():
+                    raise
+        raise CryptoError('unreachable')  # pragma: no cover
+
+    def _note_crypto_error(self) -> None:
+        # One line per 10 s instead of one per packet (thousands/minute).
+        # Never log the key or packet contents.
+        self.crypto_errors += 1
+        self._crypto_log_pending += 1
+        now = time.monotonic()
+        if now - self._crypto_log_at >= 10.0:
+            log.error(
+                "CryptoError decoding packet data (%s since last report, %s total, last good packet %s)",
+                self._crypto_log_pending,
+                self.crypto_errors,
+                f"{now - self.last_decrypt_ok:.1f}s ago" if self.last_decrypt_ok else "never",
+            )
+            self._crypto_log_at = now
+            self._crypto_log_pending = 0
+
+    def health(self) -> dict:
+        """Counters for downstream health checks (0.5.4a)."""
+        return {
+            'decrypt_ok': self.decrypt_ok,
+            'crypto_errors': self.crypto_errors,
+            'key_resyncs': self.key_resyncs,
+            'dave_failures': self.dave_failures,
+            'last_decrypt_ok_age': (time.monotonic() - self.last_decrypt_ok) if self.last_decrypt_ok else None,
+        }
 
     def start(self) -> None:
         if self.active:
@@ -136,18 +204,19 @@ class AudioReader:
     def callback(self, packet_data: bytes) -> None:
         packet = rtp_packet = rtcp_packet = None
         try:
-            if not rtp.is_rtcp(packet_data):
-                packet = rtp_packet = rtp.decode_rtp(packet_data)
-                packet.decrypted_data = self.decryptor.decrypt_rtp(packet)
+            packet, is_rtp = self._decrypt(packet_data)
+            self.decrypt_ok += 1
+            self.last_decrypt_ok = time.monotonic()
+            if is_rtp:
+                rtp_packet = packet
             else:
-                packet = rtcp_packet = rtp.decode_rtcp(self.decryptor.decrypt_rtcp(packet_data))
+                rtcp_packet = packet
 
                 if not isinstance(packet, rtp.ReceiverReportPacket):
                     log.info("Received unexpected rtcp packet: type=%s, %s", packet.type, type(packet))
-                    log.debug("Packet info:\n  packet=%s\n  data=%s", packet, packet_data)
+                    log.debug("Packet info:\n  packet=%s", packet)
         except CryptoError as e:
-            log.error("CryptoError decoding packet data")
-            log.debug("CryptoError details:\n  data=%s\n  secret_key=%s", packet_data, self.voice_client.secret_key)
+            self._note_crypto_error()
             return
         except Exception as e:
             if self._is_ip_discovery_packet(packet_data):
@@ -202,6 +271,7 @@ class PacketDecryptor:
         except AttributeError as e:
             raise NotImplementedError(mode) from e
 
+        self.key: bytes = bytes(secret_key)
         self.box: EncryptionBox = self._make_box(secret_key)
 
     def _make_box(self, secret_key: bytes) -> EncryptionBox:
@@ -212,6 +282,7 @@ class PacketDecryptor:
 
     def update_secret_key(self, secret_key: bytes) -> None:
         self.box = self._make_box(secret_key)
+        self.key = bytes(secret_key)
 
     def _decrypt_rtp_xsalsa20_poly1305(self, packet: RTPPacket) -> bytes:
         nonce = bytearray(24)
