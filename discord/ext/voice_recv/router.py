@@ -109,7 +109,7 @@ class PacketRouter(threading.Thread):
             with self._lock:
                 for decoder in self.waiter.items:
                     data = decoder.pop_data()
-                    if data is not None:
+                    if data is not None and data.source is not None:
                         self.sink.write(data.source, data)
 
 

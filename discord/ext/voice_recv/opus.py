@@ -11,6 +11,11 @@ from .rtp import FakePacket
 from .utils import add_wrapped
 
 from discord.opus import Decoder
+try:
+    from davey import MediaType
+    has_dave = True
+except ImportError:
+    has_dave = False
 
 if TYPE_CHECKING:
     from typing import Optional, Tuple, Dict, Callable, Any
@@ -53,6 +58,14 @@ class PacketDecoder:
         self._decoder: Optional[Decoder] = None if self.sink.wants_opus() else Decoder()
         self._buffer: JitterBuffer = JitterBuffer()
         self._cached_id: Optional[int] = None
+
+        self.vc: VoiceRecvClient = self.sink.voice_client # type: ignore
+        # 0.5.4a: dave_session is None when the call isn't E2EE (protocol 0 /
+        # downgraded). Calling it unguarded raised AttributeError inside
+        # feed_rtp, which stopped the whole reader.
+        dave_session = getattr(self.vc._connection, 'dave_session', None)
+        if dave_session is not None:
+            dave_session.set_passthrough_mode(True, 10)
 
         self._last_seq: int = -1
         self._last_ts: int = -1
@@ -131,14 +144,29 @@ class PacketDecoder:
 
     def _process_packet(self, packet: AudioPacket) -> VoiceData:
         pcm = None
-        if not self.sink.wants_opus():
-            packet, pcm = self._decode_packet(packet)
 
         member = self._get_cached_member()
 
         if member is None:
             self._cached_id = self.sink.voice_client._get_id_from_ssrc(self.ssrc)  # type: ignore
             member = self._get_cached_member()
+
+        if has_dave and not packet.is_silence() and packet.decrypted_data is not None and self.vc._connection.dave_session is not None and self.vc._connection.dave_session.ready:
+            try:
+                packet.decrypted_data = self.vc._connection.dave_session.decrypt(member.id, MediaType.audio,
+                                                                                bytes(
+                                                                                    packet.decrypted_data))  # type: ignore
+            except Exception:
+                # counted so callers can tell a dead DAVE session from silence
+                reader = getattr(self.router, 'reader', None)
+                if reader is not None and hasattr(reader, 'dave_failures'):
+                    reader.dave_failures += 1
+                self._last_seq = packet.sequence
+                self._last_ts = packet.timestamp
+                return VoiceData(packet, None, pcm=b'')
+
+        if not self.sink.wants_opus():
+            packet, pcm = self._decode_packet(packet)
 
         data = VoiceData(packet, member, pcm=pcm)
         self._last_seq = packet.sequence
@@ -151,7 +179,10 @@ class PacketDecoder:
 
         # Decode as per usual
         if packet:
-            pcm = self._decoder.decode(packet.decrypted_data, fec=False)
+            try:
+                pcm = self._decoder.decode(packet.decrypted_data, fec=False)
+            except:
+                pcm = self._decoder.decode(None, fec=False)
             return packet, pcm
 
         # Fake packet, need to check next one to use fec
